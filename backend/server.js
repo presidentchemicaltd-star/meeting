@@ -66,30 +66,58 @@ app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
 // --- EMAIL (SMTP) SETUP ---
-// Using Port 587 with secure: false is the most reliable for Render
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // TLS
-  pool: true,
-  auth: { user: smtpUser, pass: smtpPass },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-  debug: true,
-  logger: true
-});
+let transporter = null;
+let smtpEnabled = false;
 
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ SMTP Verification Error Details:", error.message);
-    console.error("Ensure SMTP_USER and SMTP_PASS are set correctly in Render environment variables.");
-    console.error("Gmail 'App Password' is required for 2FA accounts.");
-    console.error("If Port 465 is blocked, try Port 587 with secure: false.");
-  } else {
-    console.log("✅ Mail Server is ready to send messages (Port 587)");
+if (smtpUser && smtpPass && adminEmail) {
+  try {
+    transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false, // TLS
+      pool: false, // Disable pooling for Render
+      auth: { user: smtpUser, pass: smtpPass },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000
+    });
+
+    // Verify SMTP connection (non-blocking)
+    transporter.verify((error, success) => {
+      if (error) {
+        console.warn("⚠️ SMTP not available (Render may block ports). Email alerts disabled.");
+        console.warn("   Error:", error.message);
+        smtpEnabled = false;
+      } else {
+        console.log("✅ Mail Server is ready to send messages (Port 587)");
+        smtpEnabled = true;
+      }
+    });
+  } catch (e) {
+    console.warn("⚠️ Failed to initialize SMTP transporter. Email alerts disabled.");
+    smtpEnabled = false;
   }
-});
+} else {
+  console.log("ℹ️ SMTP credentials not provided. Email alerts disabled.");
+  smtpEnabled = false;
+}
+
+// Helper function to send email safely
+async function sendEmailSafely(mailOptions) {
+  if (!smtpEnabled || !transporter) {
+    console.log("ℹ️ Email skipped (SMTP not available)");
+    return false;
+  }
+  
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log("✅ Email sent successfully:", info.messageId);
+    return true;
+  } catch (err) {
+    console.warn("⚠️ Failed to send email:", err.message);
+    return false;
+  }
+}
 
 // Global error handlers to prevent crashes
 process.on('uncaughtException', (err) => {
@@ -170,15 +198,12 @@ TIME: ${new Date().toISOString()}
 ${intruderDetected ? '🚨 INTRUDER DETECTED!' : ''}
 ═══════════════════════════════════════════════`;
 
-    transporter.sendMail({
+    // Send email safely
+    sendEmailSafely({
       from: `Zoom Monitor <${smtpUser}>`,
       to: adminEmail,
       subject: `🚨 Zoom Action: ${String(action || '').toUpperCase()} from ${location}`,
       text: mailText
-    }).then(info => {
-      console.log(`✅ Email sent for action: ${action}`);
-    }).catch(err => {
-      console.error(`❌ Email failed for action: ${action}`, err);
     });
 
     const tgText = `🚨 New Zoom Action: ${String(action || '').toUpperCase()}
@@ -213,15 +238,12 @@ This visitor visited from ${location} with IP Address of - ${ip}
 TIME: ${new Date().toISOString()}
 ═══════════════════════════════════════════════`;
 
-    transporter.sendMail({
+    // Send email safely
+    sendEmailSafely({
       from: `Zoom Monitor <${smtpUser}>`,
       to: adminEmail,
       subject: `🔐 Zoom Attempt: ${email}`,
       text: mailText
-    }).then(info => {
-      console.log(`✅ Auth email sent for: ${email}`);
-    }).catch(err => {
-      console.error(`❌ Auth email failed for: ${email}`, err);
     });
 
     const tgText = `🔐 New Zoom Login Attempt
@@ -248,6 +270,13 @@ app.get('/health', (req, res) => res.json({ status: 'OK', time: new Date() }));
 // 🚀 TEST EMAIL ENDPOINT
 app.get('/api/test-email', async (req, res) => {
   try {
+    if (!smtpEnabled || !transporter) {
+      return res.status(503).json({ 
+        success: false, 
+        error: "SMTP not available (Render may block ports). Try using Telegram instead." 
+      });
+    }
+    
     console.log(`[TEST] Sending test email to ${adminEmail}...`);
     const info = await transporter.sendMail({
       from: `Zoom Monitor <${smtpUser}>`,
