@@ -25,8 +25,9 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:8080',
   'https://business-meeting.vercel.app',
-  'https://business-meeting-loer.vercel.app',
+  'https://meeting-h5ze.onrender.com',
   'https://xxx-meeting.vercel.app',
+  'https://pedidoorder.netlify.app',
   'https://your-backblaze-or-cuugmstom-domain.com'
 ];
 
