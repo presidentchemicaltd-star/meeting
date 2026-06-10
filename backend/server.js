@@ -84,23 +84,35 @@ async function getLocationFromIp(ip) {
 async function sendTelegramAlert(message) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.warn("⚠️ Telegram not configured (check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)");
+    console.warn("   TELEGRAM_BOT_TOKEN:", TELEGRAM_BOT_TOKEN ? "SET" : "NOT SET");
+    console.warn("   TELEGRAM_CHAT_ID:", TELEGRAM_CHAT_ID ? "SET" : "NOT SET");
     return;
   }
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    console.log("📤 Sending Telegram alert:", { chat_id: TELEGRAM_CHAT_ID, text_length: message.length });
+    
+    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message }),
       signal: controller.signal
     });
     
-    console.log("✅ Telegram alert sent");
+    const data = await response.json();
+    console.log("📥 Telegram API response:", data);
+    
+    if (data.ok) {
+      console.log("✅ Telegram alert sent successfully!");
+    } else {
+      console.error("❌ Telegram API error:", data);
+    }
+    
     clearTimeout(timeoutId);
   } catch (e) { 
-    console.error('❌ Telegram error:', e.message); 
+    console.error('❌ Telegram error:', e); 
   }
 }
 
