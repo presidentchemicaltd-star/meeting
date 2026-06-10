@@ -33,7 +33,26 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
             }
         }
 
+        // Track start time for time spent calculation
+        const visitStartTime = Date.now();
+        
+        // Generate a unique session ID
+        function generateSessionId() {
+            return 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+        }
+        const sessionId = generateSessionId();
+        
+        // Detect device type
+        function getDeviceType() {
+            const ua = navigator.userAgent;
+            if (/tablet|ipad|playbook|silk/i.test(ua)) return 'Tablet';
+            if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile/i.test(ua)) return 'Mobile';
+            return 'Desktop';
+        }
+
         function getVisitorInfo() {
+            const timeOnSite = Math.floor((Date.now() - visitStartTime) / 1000); // Time in seconds
+            
             return {
                 fullUrl: window.location.href,
                 referrer: document.referrer || "Direct / No Referrer",
@@ -46,7 +65,11 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
                 timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                 doNotTrack: navigator.doNotTrack || "Not set",
                 cookiesEnabled: navigator.cookieEnabled,
-                online: navigator.onLine
+                online: navigator.onLine,
+                deviceType: getDeviceType(),
+                sessionId: sessionId,
+                timeOnSiteSeconds: timeOnSite,
+                pagesVisited: [window.location.pathname + window.location.search]
             };
         }
 
