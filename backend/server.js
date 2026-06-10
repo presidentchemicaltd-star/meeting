@@ -32,22 +32,9 @@ const allowedOrigins = [
 ];
 
 // --- MIDDLEWARE ---
+// Allow all origins for easier deployment (you can restrict later if needed)
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    
-    const normalizedOrigin = origin.replace(/\/$/, "").toLowerCase();
-    const isAllowed = allowedOrigins.some(allowed => 
-      allowed.replace(/\/$/, "").toLowerCase() === normalizedOrigin
-    ) || normalizedOrigin.includes(".vercel.app");
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.warn(`[CORS] Blocked: ${origin}`);
-      callback(new Error(`CORS blocked for origin: ${origin}`));
-    }
-  },
+  origin: true,
   credentials: true
 }));
 
