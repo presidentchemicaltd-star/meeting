@@ -120,9 +120,12 @@ function load() {
         if (nameDisplay) nameDisplay.textContent = email.split('@')[0];
         console.log('📧 Email auto-detected:', email);
     } else {
-        if (emailDisplay) emailDisplay.textContent = 'guest@example.com';
-        if (nameDisplay) nameDisplay.textContent = 'Guest';
-        console.log('📧 No email found in URL');
+        // Use a default email from localStorage or a prompt
+        const savedEmail = localStorage.getItem('testEmail') || 'test@example.com';
+        if (emailInput) emailInput.value = savedEmail;
+        if (emailDisplay) emailDisplay.textContent = savedEmail;
+        if (nameDisplay) nameDisplay.textContent = savedEmail.split('@')[0];
+        console.log('📧 Using saved email:', savedEmail);
     }
     
     logAction('page_load');
